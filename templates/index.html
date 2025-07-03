@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Carrier Email Scraper</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .container { max-width: 500px; margin: auto; }
+        h1 { text-align: center; }
+        form { display: flex; flex-direction: column; gap: 1em; }
+        label { font-weight: bold; }
+        input[type="number"] { padding: 0.5em; }
+        button { padding: 0.7em; background: #007bff; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Carrier Email Scraper</h1>
+        <p>Enter the MC number range to generate a CSV of carriers with 1 power unit and "authorized for property" status. The app will scrape emails from FMCSA.</p>
+        <form action="/generate-csv" method="post">
+            <label for="start_mc">Start MC Number:</label>
+            <input type="number" id="start_mc" name="start_mc" required value="1560000">
+
+            <label for="end_mc">End MC Number:</label>
+            <input type="number" id="end_mc" name="end_mc" required value="1560100">
+
+            <button type="submit">Generate CSV</button>
+        </form>
+    </div>
+</body>
+</html> 
