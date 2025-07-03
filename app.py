@@ -6,6 +6,7 @@ from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
 import re
 from dotenv import load_dotenv
 
@@ -20,15 +21,12 @@ if not api_key:
 base_url = "https://saferwebapi.com/v2/mcmx/snapshot/"
 headers = {"x-api-key": api_key}
 
-# Path to your Chrome WebDriver (configurable via environment variable)
-chromedriver_path = os.environ.get('CHROMEDRIVER_PATH', '/usr/bin/chromedriver')
-
 def get_driver():
     options = webdriver.ChromeOptions()
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
-    service = Service(chromedriver_path)
+    service = Service(ChromeDriverManager().install())
     return webdriver.Chrome(service=service, options=options)
 
 def format_phone_number(phone):
