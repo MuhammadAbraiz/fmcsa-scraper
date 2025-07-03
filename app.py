@@ -3,15 +3,8 @@ import requests
 import csv
 import os
 from datetime import datetime
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
 import re
 from dotenv import load_dotenv
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-import time
 
 load_dotenv()
 
@@ -23,62 +16,6 @@ if not api_key:
     raise RuntimeError('SAFER_API_KEY environment variable not set. Please set it in your environment.')
 base_url = "https://saferwebapi.com/v2/mcmx/snapshot/"
 headers = {"x-api-key": api_key}
-
-def get_driver():
-    options = webdriver.ChromeOptions()
-    options.add_argument('--headless')
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
-    # Set a real User-Agent
-    options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.91 Safari/537.36')
-    service = Service(ChromeDriverManager().install())
-    return webdriver.Chrome(service=service, options=options)
-
-def format_phone_number(phone):
-    """Remove all non-digit characters and prepend +1 if it's a 10-digit US number."""
-    phone = re.sub(r'\D', '', phone)
-    if len(phone) == 10:
-        phone = '+1' + phone
-    return phone
-
-def scrape_usdot_email(usdot):
-    """
-    Scrape the carrier's email from FMCSA's website:
-      https://ai.fmcsa.dot.gov/SMS/Carrier/{usdot}/CarrierRegistration.aspx
-
-    Returns the email as a string (or '' if not found).
-    """
-    url = f"https://ai.fmcsa.dot.gov/SMS/Carrier/{usdot}/CarrierRegistration.aspx"
-    driver = get_driver()
-    driver.get(url)
-
-    try:
-        # Wait for the Email label to appear anywhere in the page
-        email_label = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located(
-                (By.XPATH, "//label[contains(translate(text(), 'EMAIL', 'email'), 'email')]")
-            )
-        )
-        # Find the parent <li> and then the <span class='dat'> sibling
-        li = email_label.find_element(By.XPATH, "./parent::li")
-        email_span = li.find_element(By.CLASS_NAME, "dat")
-        email = email_span.text.strip()
-        if not email:
-            # Save page source and screenshot for debugging
-            with open(f"debug_usdot_{usdot}.html", "w", encoding="utf-8") as f:
-                f.write(driver.page_source)
-            driver.save_screenshot(f"debug_usdot_{usdot}.png")
-        return email
-
-    except Exception as e:
-        print(f"USDOT={usdot} - Email scrape error: {e}")
-        # Save page source and screenshot for debugging
-        with open(f"debug_usdot_{usdot}.html", "w", encoding="utf-8") as f:
-            f.write(driver.page_source)
-        driver.save_screenshot(f"debug_usdot_{usdot}.png")
-        return ''
-    finally:
-        driver.quit()
 
 @app.route('/')
 def index():
@@ -147,8 +84,6 @@ def generate_csv():
           - power_units == 1
           - 'authorized for property' in operating_status (case-insensitive)
         Otherwise returns None.
-
-        If the record qualifies, also scrape the email from FMCSA.
         """
         if not data:
             return None
@@ -158,15 +93,10 @@ def generate_csv():
 
         # Filter: 1 power unit + "authorized for property"
         if power_units == 1 and 'authorized for property' in operating_status:
-            # Scrape email via Selenium
-            usdot = data.get('usdot', '')
-            scraped_email = scrape_usdot_email(usdot)
-
-            # Collect fields
             mileage_info = data.get('mcs_150_mileage_year', {})
             return {
                 'legal_name': data.get('legal_name', ''),
-                'usdot': usdot,
+                'usdot': data.get('usdot', ''),
                 'mc_mx_ff_numbers': data.get('mc_mx_ff_numbers', ''),
                 'entity_type': data.get('entity_type', ''),
                 'address': data.get('physical_address', ''),  # or 'mailing_address'
@@ -181,9 +111,8 @@ def generate_csv():
                 'operation_classification': ', '.join(data.get('operation_classification', [])),
                 'carrier_operation': ', '.join(data.get('carrier_operation', [])),
                 'cargo_carried': ', '.join(data.get('cargo_carried', [])),
-                'scraped_email': scraped_email
+                'scraped_email': ''  # Email left blank
             }
-
         return None
 
     # Loop through each MC number in the requested range
