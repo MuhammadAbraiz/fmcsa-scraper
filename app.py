@@ -6,6 +6,8 @@ from datetime import datetime
 import re
 from dotenv import load_dotenv
 import time
+import smtplib
+from email.message import EmailMessage
 
 load_dotenv()
 
@@ -32,6 +34,7 @@ def generate_csv():
     """
     start_mc = int(request.form.get('start_mc', 1560000))
     end_mc   = int(request.form.get('end_mc', 1560100))
+    user_email = request.form.get('user_email')
 
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     output_csv_file = f'output_{timestamp}.csv'
@@ -147,12 +150,29 @@ def generate_csv():
                     carrier_data['cargo_carried'],
                 ])
 
-
     # If we found any carriers, the CSV should exist
     if os.path.exists(output_csv_file):
-        return send_file(output_csv_file, as_attachment=True)
+        send_csv_email(user_email, output_csv_file)
+        os.remove(output_csv_file)
+        return f"CSV sent to {user_email}!"
     else:
         return "No valid data found matching the criteria.", 400
+
+def send_csv_email(to_email, csv_file_path):
+    gmail_user = os.environ.get('GMAIL_USER')
+    gmail_pass = os.environ.get('GMAIL_PASS')
+    msg = EmailMessage()
+    msg['Subject'] = 'Your Requested CSV File'
+    msg['From'] = gmail_user
+    msg['To'] = to_email
+    msg.set_content('Attached is your requested CSV file.')
+    with open(csv_file_path, 'rb') as f:
+        file_data = f.read()
+        file_name = os.path.basename(csv_file_path)
+    msg.add_attachment(file_data, maintype='application', subtype='octet-stream', filename=file_name)
+    with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+        smtp.login(gmail_user, gmail_pass)
+        smtp.send_message(msg)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
