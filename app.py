@@ -11,6 +11,7 @@ import re
 from dotenv import load_dotenv
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+import time
 
 load_dotenv()
 
@@ -28,6 +29,8 @@ def get_driver():
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
+    # Set a real User-Agent
+    options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.91 Safari/537.36')
     service = Service(ChromeDriverManager().install())
     return webdriver.Chrome(service=service, options=options)
 
@@ -211,6 +214,8 @@ def generate_csv():
                     carrier_data['cargo_carried'],
                     carrier_data['scraped_email']  # from scrape_usdot_email()
                 ])
+        # Add a delay to avoid being blocked
+        time.sleep(5)
 
     # If we found any carriers, the CSV should exist
     if os.path.exists(output_csv_file):
