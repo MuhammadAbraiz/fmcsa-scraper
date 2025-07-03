@@ -53,9 +53,7 @@ def generate_csv():
         'Operating Status',
         'Operation Classification',
         'Carrier Operation',
-        'Cargo Carried',
-        'Scraped Email'
-    ]
+        'Cargo Carried'    ]
 
     # Write the CSV header
     with open(output_csv_file, 'w', newline='', encoding='utf-8') as file:
@@ -111,9 +109,7 @@ def generate_csv():
                 'operating_status': data.get('operating_status', ''),
                 'operation_classification': ', '.join(data.get('operation_classification', [])),
                 'carrier_operation': ', '.join(data.get('carrier_operation', [])),
-                'cargo_carried': ', '.join(data.get('cargo_carried', [])),
-                'scraped_email': ''  # Email left blank
-            }
+                'cargo_carried': ', '.join(data.get('cargo_carried', []))            }
         return None
 
     def format_phone_number(phone):
@@ -149,10 +145,8 @@ def generate_csv():
                     carrier_data['operation_classification'],
                     carrier_data['carrier_operation'],
                     carrier_data['cargo_carried'],
-                    carrier_data['scraped_email']  # from scrape_usdot_email()
                 ])
-        # Add a delay to avoid being blocked
-        time.sleep(5)
+
 
     # If we found any carriers, the CSV should exist
     if os.path.exists(output_csv_file):
