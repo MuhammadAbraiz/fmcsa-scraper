@@ -10,6 +10,8 @@ import smtplib
 from email.message import EmailMessage
 
 load_dotenv()
+print("GMAIL_USER:", os.environ.get('GMAIL_USER'))
+print("GMAIL_PASS:", os.environ.get('GMAIL_PASS'))
 
 app = Flask(__name__)
 
