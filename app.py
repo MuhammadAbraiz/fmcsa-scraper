@@ -50,34 +50,29 @@ def scrape_usdot_email(usdot):
     driver.get(url)
 
     try:
-        # Wait up to 10 seconds for the .col1 element to appear
-        ul_element_col1 = WebDriverWait(driver, 5).until(
-            EC.presence_of_element_located((By.CLASS_NAME, 'col1'))
+        # Wait for the Email label to appear anywhere in the page
+        email_label = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located(
+                (By.XPATH, "//label[contains(translate(text(), 'EMAIL', 'email'), 'email')]")
+            )
         )
-        li_elements_col1 = ul_element_col1.find_elements(By.TAG_NAME, 'li')
-
-        email = ''
-        for li in li_elements_col1:
-            try:
-                label = li.find_element(By.TAG_NAME, 'label').text.strip().lower().replace(':', '')
-                data = li.find_element(By.CLASS_NAME, 'dat').text.strip()
-                if label == 'email':
-                    email = data
-                    break
-            except Exception:
-                continue
-
+        # Find the parent <li> and then the <span class='dat'> sibling
+        li = email_label.find_element(By.XPATH, "./parent::li")
+        email_span = li.find_element(By.CLASS_NAME, "dat")
+        email = email_span.text.strip()
         if not email:
-            # Save page source for debugging
+            # Save page source and screenshot for debugging
             with open(f"debug_usdot_{usdot}.html", "w", encoding="utf-8") as f:
                 f.write(driver.page_source)
+            driver.save_screenshot(f"debug_usdot_{usdot}.png")
         return email
 
     except Exception as e:
         print(f"USDOT={usdot} - Email scrape error: {e}")
-        # Save page source for debugging
+        # Save page source and screenshot for debugging
         with open(f"debug_usdot_{usdot}.html", "w", encoding="utf-8") as f:
             f.write(driver.page_source)
+        driver.save_screenshot(f"debug_usdot_{usdot}.png")
         return ''
     finally:
         driver.quit()
