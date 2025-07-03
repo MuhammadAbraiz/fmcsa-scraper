@@ -115,6 +115,13 @@ def generate_csv():
             }
         return None
 
+    def format_phone_number(phone):
+        """Remove all non-digit characters and prepend +1 if it's a 10-digit US number."""
+        phone = re.sub(r'\D', '', phone)
+        if len(phone) == 10:
+            phone = '+1' + phone
+        return phone
+
     # Loop through each MC number in the requested range
     for mc_number in range(start_mc, end_mc + 1):
         mc_json = fetch_mc_data(mc_number)
