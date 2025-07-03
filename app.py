@@ -5,6 +5,7 @@ import os
 from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.service import Service
 import re
 from dotenv import load_dotenv
 
@@ -27,7 +28,8 @@ def get_driver():
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
-    return webdriver.Chrome(executable_path=chromedriver_path, options=options)
+    service = Service(chromedriver_path)
+    return webdriver.Chrome(service=service, options=options)
 
 def format_phone_number(phone):
     """Remove all non-digit characters and prepend +1 if it's a 10-digit US number."""
@@ -216,4 +218,4 @@ def generate_csv():
         return "No valid data found matching the criteria.", 400
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=True)
