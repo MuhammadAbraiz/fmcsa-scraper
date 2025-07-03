@@ -9,6 +9,8 @@ from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 import re
 from dotenv import load_dotenv
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 load_dotenv()
 
@@ -48,28 +50,34 @@ def scrape_usdot_email(usdot):
     driver.get(url)
 
     try:
-        # Page structure: 
-        #   <ul class="col1">
-        #       <li>
-        #           <label>Email:</label>
-        #           <span class="dat">somecarrier@example.com</span>
-        #       </li>
-        #   </ul>
-        ul_element_col1 = driver.find_element(By.CLASS_NAME, 'col1')
+        # Wait up to 10 seconds for the .col1 element to appear
+        ul_element_col1 = WebDriverWait(driver, 5).until(
+            EC.presence_of_element_located((By.CLASS_NAME, 'col1'))
+        )
         li_elements_col1 = ul_element_col1.find_elements(By.TAG_NAME, 'li')
 
         email = ''
         for li in li_elements_col1:
-            label = li.find_element(By.TAG_NAME, 'label').text.strip()
-            data = li.find_element(By.CLASS_NAME, 'dat').text.strip()
-            if label.lower() == 'email:':
-                email = data
-                break
+            try:
+                label = li.find_element(By.TAG_NAME, 'label').text.strip().lower().replace(':', '')
+                data = li.find_element(By.CLASS_NAME, 'dat').text.strip()
+                if label == 'email':
+                    email = data
+                    break
+            except Exception:
+                continue
 
+        if not email:
+            # Save page source for debugging
+            with open(f"debug_usdot_{usdot}.html", "w", encoding="utf-8") as f:
+                f.write(driver.page_source)
         return email
 
     except Exception as e:
         print(f"USDOT={usdot} - Email scrape error: {e}")
+        # Save page source for debugging
+        with open(f"debug_usdot_{usdot}.html", "w", encoding="utf-8") as f:
+            f.write(driver.page_source)
         return ''
     finally:
         driver.quit()
