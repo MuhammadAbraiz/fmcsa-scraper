@@ -1,4 +1,4 @@
-from flask import Flask, request, send_file, render_template
+from flask import Flask, request, send_file, render_template, send_from_directory
 import requests
 import csv
 import os
@@ -14,6 +14,9 @@ print("GMAIL_USER:", os.environ.get('GMAIL_USER'))
 print("GMAIL_PASS:", os.environ.get('GMAIL_PASS'))
 
 app = Flask(__name__)
+
+OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'outputs')
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # API key and base URL for SAFER
 api_key = os.environ.get('SAFER_API_KEY')
@@ -39,7 +42,7 @@ def generate_csv():
     user_email = request.form.get('user_email')
 
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    output_csv_file = f'output_{timestamp}.csv'
+    output_csv_file = os.path.join(OUTPUT_DIR, f'output_{timestamp}.csv')
 
     # CSV columns (including "Email" at the end)
     csv_columns = [
@@ -154,11 +157,31 @@ def generate_csv():
 
     # If we found any carriers, the CSV should exist
     if os.path.exists(output_csv_file):
-        send_csv_email(user_email, output_csv_file)
+        filename = os.path.basename(output_csv_file)
+        download_url = f"/download/{filename}"
+
+        if not (os.environ.get('GMAIL_USER') and os.environ.get('GMAIL_PASS')):
+            return f"Email not configured. CSV saved on server: {download_url}"
+
+        try:
+            send_csv_email(user_email, output_csv_file)
+        except Exception as e:
+            print(f"Failed to send email: {e}")
+            return f"Email failed to send. CSV saved on server: {download_url}"
+
         os.remove(output_csv_file)
         return f"CSV sent to {user_email}!"
     else:
         return "No valid data found matching the criteria.", 400
+
+@app.route('/download/<path:filename>')
+def download_file(filename):
+    safe_filename = os.path.basename(filename)
+    if not safe_filename.startswith('output_') or not safe_filename.endswith('.csv'):
+        return "Invalid file", 400
+    if not os.path.exists(os.path.join(OUTPUT_DIR, safe_filename)):
+        return "File not found", 404
+    return send_from_directory(OUTPUT_DIR, safe_filename, as_attachment=True)
 
 def send_csv_email(to_email, csv_file_path):
     gmail_user = os.environ.get('GMAIL_USER')
