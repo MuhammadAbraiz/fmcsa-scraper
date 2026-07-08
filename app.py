@@ -104,7 +104,12 @@ def extract_data(data):
     power_units = data.get('power_units', 0)
     operating_status = (data.get('operating_status') or '').lower()
 
-    if power_units == 1 and 'authorized for property' in operating_status:
+    # SAFER returns statuses like "AUTHORIZED FOR: Motor Carrier of Property
+    # (Except Household Goods)" rather than the literal phrase "authorized for
+    # property", so match loosely instead of on an exact substring.
+    is_authorized_for_property = bool(re.search(r'authorized for.*propert', operating_status))
+
+    if power_units == 1 and is_authorized_for_property:
         mileage_info = data.get('mcs_150_mileage_year') or {}
         return {
             'legal_name': data.get('legal_name', ''),
