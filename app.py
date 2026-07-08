@@ -218,7 +218,7 @@ SCRAPE_WORKERS = 10
 def run_scrape_job(job_id, start_mc, end_mc, user_email):
     total = end_mc - start_mc + 1
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    output_csv_file = os.path.join(OUTPUT_DIR, f'output_{timestamp}_{job_id[:8]}.csv')
+    output_csv_file = os.path.join(OUTPUT_DIR, f'output_{start_mc}-{end_mc}_{timestamp}.csv')
 
     write_job(job_id, status='running', processed=0, total=total, found=0,
               start_mc=start_mc, end_mc=end_mc, download_url=None, message=None)
