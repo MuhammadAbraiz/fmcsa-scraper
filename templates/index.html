@@ -91,6 +91,7 @@
         const progressFill = document.getElementById('progress-bar-fill');
         const progressText = document.getElementById('progress-text');
         const resultDiv = document.getElementById('result');
+        const ACTIVE_JOB_KEY = 'fmcsa_active_job_id';
         let pollTimer = null;
 
         form.addEventListener('submit', async (e) => {
@@ -115,6 +116,7 @@
                 if (!response.ok) {
                     throw new Error(data.error || 'Failed to start job');
                 }
+                localStorage.setItem(ACTIVE_JOB_KEY, data.job_id);
                 pollStatus(data.job_id);
             } catch (err) {
                 progressSection.style.display = 'none';
@@ -138,10 +140,37 @@
                     }
                 } catch (err) {
                     clearInterval(pollTimer);
+                    localStorage.removeItem(ACTIVE_JOB_KEY);
                     showResult(false, err.message);
                     resetButton();
                 }
             }, 1500);
+        }
+
+        async function resumeActiveJobIfAny() {
+            const jobId = localStorage.getItem(ACTIVE_JOB_KEY);
+            if (!jobId) return;
+
+            try {
+                const res = await fetch(`/status/${jobId}`);
+                if (!res.ok) {
+                    localStorage.removeItem(ACTIVE_JOB_KEY);
+                    return;
+                }
+                const data = await res.json();
+                progressSection.style.display = 'block';
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Running...';
+                updateProgress(data);
+
+                if (data.status === 'done' || data.status === 'error') {
+                    finishJob(data);
+                } else {
+                    pollStatus(jobId);
+                }
+            } catch (err) {
+                localStorage.removeItem(ACTIVE_JOB_KEY);
+            }
         }
 
         function updateProgress(data) {
@@ -154,6 +183,7 @@
 
         function finishJob(data) {
             resetButton();
+            localStorage.removeItem(ACTIVE_JOB_KEY);
             if (data.status === 'error') {
                 showResult(false, data.message || 'Job failed.');
                 return;
@@ -205,6 +235,7 @@
 
         document.getElementById('refresh-files-btn').addEventListener('click', loadFileList);
         loadFileList();
+        resumeActiveJobIfAny();
 
         function showResult(success, message) {
             resultDiv.innerHTML = message;
