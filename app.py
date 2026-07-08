@@ -292,6 +292,23 @@ def job_status(job_id):
     return jsonify(data)
 
 
+@app.route('/files')
+def list_files():
+    files = []
+    for filename in os.listdir(OUTPUT_DIR):
+        if not (filename.startswith('output_') and filename.endswith('.csv')):
+            continue
+        path = os.path.join(OUTPUT_DIR, filename)
+        files.append({
+            'filename': filename,
+            'size_bytes': os.path.getsize(path),
+            'modified_at': datetime.fromtimestamp(os.path.getmtime(path)).strftime('%Y-%m-%d %H:%M:%S'),
+            'download_url': f'/download/{filename}',
+        })
+    files.sort(key=lambda f: f['modified_at'], reverse=True)
+    return jsonify(files)
+
+
 @app.route('/download/<path:filename>')
 def download_file(filename):
     safe_filename = os.path.basename(filename)
