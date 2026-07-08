@@ -6,6 +6,7 @@ import re
 import json
 import uuid
 import threading
+import time
 import smtplib
 from datetime import datetime
 from email.message import EmailMessage
@@ -30,7 +31,7 @@ headers = {"x-api-key": api_key}
 
 CSV_COLUMNS = [
     'Legal Name', 'USDOT Number', 'MC/MX/FF Numbers', 'Entity Type', 'Address',
-    'Phone', 'Power Units', 'Drivers', 'MCS-150 Form Date', 'MCS-150 Mileage',
+    'Phone', 'Email', 'Power Units', 'Drivers', 'MCS-150 Form Date', 'MCS-150 Mileage',
     'MCS-150 Mileage Year', 'Out of Service Date', 'Operating Status',
     'Operation Classification', 'Carrier Operation', 'Cargo Carried',
     'Likely Equipment (Inferred)',
@@ -38,11 +39,34 @@ CSV_COLUMNS = [
 
 CSV_FIELD_ORDER = [
     'legal_name', 'usdot', 'mc_mx_ff_numbers', 'entity_type', 'address',
-    'phone', 'power_units', 'drivers', 'mcs_150_form_date', 'mcs_150_mileage',
+    'phone', 'email', 'power_units', 'drivers', 'mcs_150_form_date', 'mcs_150_mileage',
     'mcs_150_mileage_year', 'out_of_service_date', 'operating_status',
     'operation_classification', 'carrier_operation', 'cargo_carried',
     'likely_equipment',
 ]
+
+FMCSA_CARRIER_URL = "https://ai.fmcsa.dot.gov/SMS/Carrier/{usdot}/CarrierRegistration.aspx"
+FMCSA_REQUEST_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+}
+EMAIL_FIELD_RE = re.compile(
+    r'<label>\s*Email:\s*</label>\s*<span class="dat">\s*([^<]*?)\s*</span>',
+    re.IGNORECASE,
+)
+
+
+def scrape_carrier_email(usdot):
+    """Fetch the carrier's registered email from FMCSA's public registration page."""
+    if not usdot:
+        return ''
+    url = FMCSA_CARRIER_URL.format(usdot=usdot)
+    try:
+        response = requests.get(url, headers=FMCSA_REQUEST_HEADERS, timeout=15)
+        response.raise_for_status()
+    except requests.RequestException:
+        return ''
+    match = EMAIL_FIELD_RE.search(response.text)
+    return match.group(1).strip() if match else ''
 
 # FMCSA's cargo_carried field is a fixed MCS-150 commodity list — it has no
 # concept of trailer/equipment type. This is a best-effort guess from cargo
@@ -203,6 +227,8 @@ def run_scrape_job(job_id, start_mc, end_mc, user_email):
         for i, mc_number in enumerate(range(start_mc, end_mc + 1), start=1):
             carrier_data = extract_data(fetch_mc_data(mc_number))
             if carrier_data:
+                carrier_data['email'] = scrape_carrier_email(carrier_data.get('usdot'))
+                time.sleep(1)  # be polite to FMCSA's site; only matches hit this page
                 found += 1
                 with open(output_csv_file, 'a', newline='', encoding='utf-8') as f:
                     csv.writer(f).writerow([carrier_data[key] for key in CSV_FIELD_ORDER])

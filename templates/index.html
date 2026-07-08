@@ -29,7 +29,7 @@
 <body>
     <div class="container">
         <h1>Carrier Email Scraper</h1>
-        <p>Enter the MC number range to generate a CSV of carriers with 1 power unit and "authorized for property" status. The CSV includes a "Likely Equipment" column (Dry Van / Reefer / Flatbed-Stepdeck / Box Truck) inferred from FMCSA cargo data — this is a best-effort guess for prioritizing calls, not a verified fact. FMCSA has no field for Power Only or Hot Shot, so those aren't distinguishable from the data.</p>
+        <p>Enter the MC number range to generate a CSV of carriers with 1 power unit and "authorized for property" status, including each carrier's registered email pulled from FMCSA. The CSV also includes a "Likely Equipment" column (Dry Van / Reefer / Flatbed-Stepdeck / Box Truck) inferred from FMCSA cargo data — this is a best-effort guess for prioritizing calls, not a verified fact. FMCSA has no field for Power Only or Hot Shot, so those aren't distinguishable from the data.</p>
         <form id="scrape-form">
             <label for="start_mc">Start MC Number:</label>
             <input type="number" id="start_mc" name="start_mc" required value="1560000">
