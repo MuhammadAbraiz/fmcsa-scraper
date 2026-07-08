@@ -8,6 +8,7 @@ import uuid
 import threading
 import time
 import smtplib
+import concurrent.futures
 from datetime import datetime
 from email.message import EmailMessage
 from dotenv import load_dotenv
@@ -211,6 +212,9 @@ def send_csv_email(to_email, csv_file_path):
         smtp.send_message(msg)
 
 
+SCRAPE_WORKERS = 10
+
+
 def run_scrape_job(job_id, start_mc, end_mc, user_email):
     total = end_mc - start_mc + 1
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -222,21 +226,40 @@ def run_scrape_job(job_id, start_mc, end_mc, user_email):
     with open(output_csv_file, 'w', newline='', encoding='utf-8') as f:
         csv.writer(f).writerow(CSV_COLUMNS)
 
-    found = 0
-    try:
-        for i, mc_number in enumerate(range(start_mc, end_mc + 1), start=1):
-            carrier_data = extract_data(fetch_mc_data(mc_number))
-            if carrier_data:
-                carrier_data['email'] = scrape_carrier_email(carrier_data.get('usdot'))
-                time.sleep(1)  # be polite to FMCSA's site; only matches hit this page
-                found += 1
+    def process_mc(mc_number):
+        carrier_data = extract_data(fetch_mc_data(mc_number))
+        if carrier_data:
+            carrier_data['email'] = scrape_carrier_email(carrier_data.get('usdot'))
+            time.sleep(1)  # be polite to FMCSA's site; only matches hit this page
+        return carrier_data
+
+    csv_lock = threading.Lock()
+    counters = {'processed': 0, 'found': 0, 'last_write': 0.0}
+
+    def handle_result(carrier_data):
+        counters['processed'] += 1
+        if carrier_data:
+            counters['found'] += 1
+            with csv_lock:
                 with open(output_csv_file, 'a', newline='', encoding='utf-8') as f:
                     csv.writer(f).writerow([carrier_data[key] for key in CSV_FIELD_ORDER])
-            write_job(job_id, processed=i, found=found)
+
+        now = time.monotonic()
+        is_last = counters['processed'] == total
+        if carrier_data is not None or is_last or now - counters['last_write'] >= 1.0:
+            counters['last_write'] = now
+            write_job(job_id, processed=counters['processed'], found=counters['found'])
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=SCRAPE_WORKERS) as executor:
+            futures = [executor.submit(process_mc, mc) for mc in range(start_mc, end_mc + 1)]
+            for future in concurrent.futures.as_completed(futures):
+                handle_result(future.result())
     except Exception as e:
         write_job(job_id, status='error', message=f'Scrape failed: {e}')
         return
 
+    found = counters['found']
     if found == 0:
         os.remove(output_csv_file)
         write_job(job_id, status='done', message='No valid data found matching the criteria.')
