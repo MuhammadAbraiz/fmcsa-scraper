@@ -33,6 +33,7 @@ CSV_COLUMNS = [
     'Phone', 'Power Units', 'Drivers', 'MCS-150 Form Date', 'MCS-150 Mileage',
     'MCS-150 Mileage Year', 'Out of Service Date', 'Operating Status',
     'Operation Classification', 'Carrier Operation', 'Cargo Carried',
+    'Likely Equipment (Inferred)',
 ]
 
 CSV_FIELD_ORDER = [
@@ -40,7 +41,42 @@ CSV_FIELD_ORDER = [
     'phone', 'power_units', 'drivers', 'mcs_150_form_date', 'mcs_150_mileage',
     'mcs_150_mileage_year', 'out_of_service_date', 'operating_status',
     'operation_classification', 'carrier_operation', 'cargo_carried',
+    'likely_equipment',
 ]
+
+# FMCSA's cargo_carried field is a fixed MCS-150 commodity list — it has no
+# concept of trailer/equipment type. This is a best-effort guess from cargo
+# keywords for prioritizing calls, not a verified fact. "Power Only" and
+# "Hot Shot" specifically have no reliable signal in FMCSA data at all, so
+# they're folded into the flatbed bucket with that caveat rather than guessed
+# outright.
+REEFER_KEYWORDS = ('refrigerated', 'meat', 'fresh produce')
+FLATBED_KEYWORDS = (
+    'building materials', 'machinery', 'large objects', 'metal: sheets',
+    'coils', 'rolls', 'logs', 'poles', 'beams', 'lumber', 'construction',
+    'oilfield',
+)
+BOX_TRUCK_KEYWORDS = ('household goods',)
+DRY_VAN_KEYWORDS = (
+    'general freight', 'paper products', 'beverages', 'us mail', 'grain',
+    'feed', 'hay', 'intermodal', 'dry bulk',
+)
+
+
+def infer_equipment(cargo_list):
+    cargo_list = cargo_list or []
+    combined = ', '.join(cargo_list).lower()
+    if not combined:
+        return 'Unknown (no cargo data)'
+    if any(k in combined for k in REEFER_KEYWORDS):
+        return 'Reefer'
+    if any(k in combined for k in FLATBED_KEYWORDS):
+        return 'Flatbed/Stepdeck or Hot Shot (single-truck, unverified)'
+    if any(k in combined for k in BOX_TRUCK_KEYWORDS):
+        return 'Box Truck (possible, household goods mover)'
+    if any(k in combined for k in DRY_VAN_KEYWORDS):
+        return 'Dry Van (likely)'
+    return f'Unknown/Other ({", ".join(cargo_list)})'
 
 
 def job_path(job_id):
@@ -111,6 +147,7 @@ def extract_data(data):
 
     if power_units == 1 and is_authorized_for_property:
         mileage_info = data.get('mcs_150_mileage_year') or {}
+        cargo_carried = data.get('cargo_carried') or []
         return {
             'legal_name': data.get('legal_name', ''),
             'usdot': data.get('usdot', ''),
@@ -127,7 +164,8 @@ def extract_data(data):
             'operating_status': data.get('operating_status', ''),
             'operation_classification': ', '.join(data.get('operation_classification') or []),
             'carrier_operation': ', '.join(data.get('carrier_operation') or []),
-            'cargo_carried': ', '.join(data.get('cargo_carried') or []),
+            'cargo_carried': ', '.join(cargo_carried),
+            'likely_equipment': infer_equipment(cargo_carried),
         }
     return None
 
