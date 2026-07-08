@@ -1,22 +1,25 @@
-from flask import Flask, request, send_file, render_template, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, render_template
 import requests
 import csv
 import os
-from datetime import datetime
 import re
-from dotenv import load_dotenv
-import time
+import json
+import uuid
+import threading
 import smtplib
+from datetime import datetime
 from email.message import EmailMessage
+from dotenv import load_dotenv
 
 load_dotenv()
-print("GMAIL_USER:", os.environ.get('GMAIL_USER'))
-print("GMAIL_PASS:", os.environ.get('GMAIL_PASS'))
 
 app = Flask(__name__)
 
-OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'outputs')
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_DIR = os.path.join(BASE_DIR, 'outputs')
+JOBS_DIR = os.path.join(BASE_DIR, 'jobs')
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(JOBS_DIR, exist_ok=True)
 
 # API key and base URL for SAFER
 api_key = os.environ.get('SAFER_API_KEY')
@@ -25,163 +28,104 @@ if not api_key:
 base_url = "https://saferwebapi.com/v2/mcmx/snapshot/"
 headers = {"x-api-key": api_key}
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+CSV_COLUMNS = [
+    'Legal Name', 'USDOT Number', 'MC/MX/FF Numbers', 'Entity Type', 'Address',
+    'Phone', 'Power Units', 'Drivers', 'MCS-150 Form Date', 'MCS-150 Mileage',
+    'MCS-150 Mileage Year', 'Out of Service Date', 'Operating Status',
+    'Operation Classification', 'Carrier Operation', 'Cargo Carried',
+]
 
-@app.route('/generate-csv', methods=['POST'])
-def generate_csv():
-    """
-    Generates a CSV of carriers who have:
-      - Exactly 1 power unit
-      - 'authorized for property' in their operating_status (case-insensitive)
-    Then scrapes each carrier's email from FMCSA via Selenium.
-    """
-    start_mc = int(request.form.get('start_mc', 1560000))
-    end_mc   = int(request.form.get('end_mc', 1560100))
-    user_email = request.form.get('user_email')
+CSV_FIELD_ORDER = [
+    'legal_name', 'usdot', 'mc_mx_ff_numbers', 'entity_type', 'address',
+    'phone', 'power_units', 'drivers', 'mcs_150_form_date', 'mcs_150_mileage',
+    'mcs_150_mileage_year', 'out_of_service_date', 'operating_status',
+    'operation_classification', 'carrier_operation', 'cargo_carried',
+]
 
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    output_csv_file = os.path.join(OUTPUT_DIR, f'output_{timestamp}.csv')
 
-    # CSV columns (including "Email" at the end)
-    csv_columns = [
-        'Legal Name',
-        'USDOT Number',
-        'MC/MX/FF Numbers',
-        'Entity Type',
-        'Address',
-        'Phone',
-        'Power Units',
-        'Drivers',
-        'MCS-150 Form Date',
-        'MCS-150 Mileage',
-        'MCS-150 Mileage Year',
-        'Out of Service Date',
-        'Operating Status',
-        'Operation Classification',
-        'Carrier Operation',
-        'Cargo Carried'    ]
+def job_path(job_id):
+    return os.path.join(JOBS_DIR, f'{job_id}.json')
 
-    # Write the CSV header
-    with open(output_csv_file, 'w', newline='', encoding='utf-8') as file:
-        writer = csv.writer(file)
-        writer.writerow(csv_columns)
 
-    def fetch_mc_data(mc_number):
-        """
-        Fetch JSON data from the SaferWeb API for a given MC number.
-        """
-        url = f"{base_url}{mc_number}"
+def write_job(job_id, **fields):
+    """Persist job progress to disk so any gunicorn worker can read it."""
+    path = job_path(job_id)
+    data = {}
+    if os.path.exists(path):
         try:
-            response = requests.get(url, headers=headers)
-            # Debug prints (optional)
-            print(f"\nMC={mc_number} - Status Code: {response.status_code}")
-            print("Response text:", response.text[:300], '...')  # truncated for brevity
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            data = {}
+    data.update(fields)
+    tmp_path = path + '.tmp'
+    with open(tmp_path, 'w', encoding='utf-8') as f:
+        json.dump(data, f)
+    os.replace(tmp_path, path)
 
-            response.raise_for_status()
-            return response.json()
-        except requests.RequestException as e:
-            print(f"Error fetching data for MC={mc_number}: {e}")
-            return None
 
-    def extract_data(mc_number, data):
-        """
-        Returns a dict with the relevant fields IF:
-          - power_units == 1
-          - 'authorized for property' in operating_status (case-insensitive)
-        Otherwise returns None.
-        """
-        if not data:
-            return None
+def read_job(job_id):
+    path = job_path(job_id)
+    if not os.path.exists(path):
+        return None
+    with open(path, 'r', encoding='utf-8') as f:
+        return json.load(f)
 
-        power_units = data.get('power_units', 0)
-        operating_status = data.get('operating_status', '').lower()
 
-        # Filter: 1 power unit + "authorized for property"
-        if power_units == 1 and 'authorized for property' in operating_status:
-            mileage_info = data.get('mcs_150_mileage_year', {})
-            return {
-                'legal_name': data.get('legal_name', ''),
-                'usdot': data.get('usdot', ''),
-                'mc_mx_ff_numbers': data.get('mc_mx_ff_numbers', ''),
-                'entity_type': data.get('entity_type', ''),
-                'address': data.get('physical_address', ''),  # or 'mailing_address'
-                'phone': format_phone_number(data.get('phone', '')),
-                'power_units': power_units,
-                'drivers': data.get('drivers', ''),
-                'mcs_150_form_date': data.get('mcs_150_form_date', ''),
-                'mcs_150_mileage': mileage_info.get('mileage', ''),
-                'mcs_150_mileage_year': mileage_info.get('year', ''),
-                'out_of_service_date': data.get('out_of_service_date', ''),
-                'operating_status': data.get('operating_status', ''),
-                'operation_classification': ', '.join(data.get('operation_classification', [])),
-                'carrier_operation': ', '.join(data.get('carrier_operation', [])),
-                'cargo_carried': ', '.join(data.get('cargo_carried', []))            }
+def format_phone_number(phone):
+    """Remove all non-digit characters and prepend +1 if it's a 10-digit US number."""
+    phone = re.sub(r'\D', '', phone or '')
+    if len(phone) == 10:
+        phone = '+1' + phone
+    return phone
+
+
+def fetch_mc_data(mc_number):
+    """Fetch JSON data from the SaferWeb API for a given MC number."""
+    url = f"{base_url}{mc_number}"
+    try:
+        response = requests.get(url, headers=headers, timeout=15)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException:
         return None
 
-    def format_phone_number(phone):
-        """Remove all non-digit characters and prepend +1 if it's a 10-digit US number."""
-        phone = re.sub(r'\D', '', phone)
-        if len(phone) == 10:
-            phone = '+1' + phone
-        return phone
 
-    # Loop through each MC number in the requested range
-    for mc_number in range(start_mc, end_mc + 1):
-        mc_json = fetch_mc_data(mc_number)
-        carrier_data = extract_data(mc_number, mc_json)
+def extract_data(data):
+    """
+    Returns a dict with the relevant fields IF:
+      - power_units == 1
+      - 'authorized for property' in operating_status (case-insensitive)
+    Otherwise returns None.
+    """
+    if not data:
+        return None
 
-        if carrier_data:
-            # Write row to CSV
-            with open(output_csv_file, 'a', newline='', encoding='utf-8') as file:
-                writer = csv.writer(file)
-                writer.writerow([
-                    carrier_data['legal_name'],
-                    carrier_data['usdot'],
-                    carrier_data['mc_mx_ff_numbers'],
-                    carrier_data['entity_type'],
-                    carrier_data['address'],
-                    carrier_data['phone'],
-                    carrier_data['power_units'],
-                    carrier_data['drivers'],
-                    carrier_data['mcs_150_form_date'],
-                    carrier_data['mcs_150_mileage'],
-                    carrier_data['mcs_150_mileage_year'],
-                    carrier_data['out_of_service_date'],
-                    carrier_data['operating_status'],
-                    carrier_data['operation_classification'],
-                    carrier_data['carrier_operation'],
-                    carrier_data['cargo_carried'],
-                ])
+    power_units = data.get('power_units', 0)
+    operating_status = (data.get('operating_status') or '').lower()
 
-    # If we found any carriers, the CSV should exist
-    if os.path.exists(output_csv_file):
-        filename = os.path.basename(output_csv_file)
-        download_url = f"/download/{filename}"
+    if power_units == 1 and 'authorized for property' in operating_status:
+        mileage_info = data.get('mcs_150_mileage_year') or {}
+        return {
+            'legal_name': data.get('legal_name', ''),
+            'usdot': data.get('usdot', ''),
+            'mc_mx_ff_numbers': data.get('mc_mx_ff_numbers', ''),
+            'entity_type': data.get('entity_type', ''),
+            'address': data.get('physical_address', ''),
+            'phone': format_phone_number(data.get('phone', '')),
+            'power_units': power_units,
+            'drivers': data.get('drivers', ''),
+            'mcs_150_form_date': data.get('mcs_150_form_date', ''),
+            'mcs_150_mileage': mileage_info.get('mileage', ''),
+            'mcs_150_mileage_year': mileage_info.get('year', ''),
+            'out_of_service_date': data.get('out_of_service_date', ''),
+            'operating_status': data.get('operating_status', ''),
+            'operation_classification': ', '.join(data.get('operation_classification') or []),
+            'carrier_operation': ', '.join(data.get('carrier_operation') or []),
+            'cargo_carried': ', '.join(data.get('cargo_carried') or []),
+        }
+    return None
 
-        if not (os.environ.get('GMAIL_USER') and os.environ.get('GMAIL_PASS')):
-            return f"Email not configured. CSV saved on server: {download_url}"
-
-        try:
-            send_csv_email(user_email, output_csv_file)
-        except Exception as e:
-            print(f"Failed to send email: {e}")
-            return f"Email failed to send. CSV saved on server: {download_url}"
-
-        os.remove(output_csv_file)
-        return f"CSV sent to {user_email}!"
-    else:
-        return "No valid data found matching the criteria.", 400
-
-@app.route('/download/<path:filename>')
-def download_file(filename):
-    safe_filename = os.path.basename(filename)
-    if not safe_filename.startswith('output_') or not safe_filename.endswith('.csv'):
-        return "Invalid file", 400
-    if not os.path.exists(os.path.join(OUTPUT_DIR, safe_filename)):
-        return "File not found", 404
-    return send_from_directory(OUTPUT_DIR, safe_filename, as_attachment=True)
 
 def send_csv_email(to_email, csv_file_path):
     gmail_user = os.environ.get('GMAIL_USER')
@@ -198,6 +142,96 @@ def send_csv_email(to_email, csv_file_path):
     with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
         smtp.login(gmail_user, gmail_pass)
         smtp.send_message(msg)
+
+
+def run_scrape_job(job_id, start_mc, end_mc, user_email):
+    total = end_mc - start_mc + 1
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    output_csv_file = os.path.join(OUTPUT_DIR, f'output_{timestamp}_{job_id[:8]}.csv')
+
+    write_job(job_id, status='running', processed=0, total=total, found=0,
+              start_mc=start_mc, end_mc=end_mc, download_url=None, message=None)
+
+    with open(output_csv_file, 'w', newline='', encoding='utf-8') as f:
+        csv.writer(f).writerow(CSV_COLUMNS)
+
+    found = 0
+    try:
+        for i, mc_number in enumerate(range(start_mc, end_mc + 1), start=1):
+            carrier_data = extract_data(fetch_mc_data(mc_number))
+            if carrier_data:
+                found += 1
+                with open(output_csv_file, 'a', newline='', encoding='utf-8') as f:
+                    csv.writer(f).writerow([carrier_data[key] for key in CSV_FIELD_ORDER])
+            write_job(job_id, processed=i, found=found)
+    except Exception as e:
+        write_job(job_id, status='error', message=f'Scrape failed: {e}')
+        return
+
+    if found == 0:
+        os.remove(output_csv_file)
+        write_job(job_id, status='done', message='No valid data found matching the criteria.')
+        return
+
+    filename = os.path.basename(output_csv_file)
+    download_url = f"/download/{filename}"
+
+    if not (os.environ.get('GMAIL_USER') and os.environ.get('GMAIL_PASS')):
+        write_job(job_id, status='done', message='Email not configured.', download_url=download_url)
+        return
+
+    try:
+        send_csv_email(user_email, output_csv_file)
+    except Exception as e:
+        write_job(job_id, status='done', message=f'Email failed to send ({e}).', download_url=download_url)
+        return
+
+    os.remove(output_csv_file)
+    write_job(job_id, status='done', message=f'CSV sent to {user_email}!')
+
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+
+@app.route('/generate-csv', methods=['POST'])
+def generate_csv():
+    try:
+        start_mc = int(request.form.get('start_mc', 1560000))
+        end_mc = int(request.form.get('end_mc', 1560100))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Start and end MC numbers must be integers.'}), 400
+
+    if end_mc < start_mc:
+        return jsonify({'error': 'End MC number must be greater than or equal to start MC number.'}), 400
+
+    user_email = request.form.get('user_email', '')
+
+    job_id = uuid.uuid4().hex
+    thread = threading.Thread(target=run_scrape_job, args=(job_id, start_mc, end_mc, user_email), daemon=True)
+    thread.start()
+
+    return jsonify({'job_id': job_id})
+
+
+@app.route('/status/<job_id>')
+def job_status(job_id):
+    data = read_job(job_id)
+    if data is None:
+        return jsonify({'error': 'Job not found'}), 404
+    return jsonify(data)
+
+
+@app.route('/download/<path:filename>')
+def download_file(filename):
+    safe_filename = os.path.basename(filename)
+    if not safe_filename.startswith('output_') or not safe_filename.endswith('.csv'):
+        return "Invalid file", 400
+    if not os.path.exists(os.path.join(OUTPUT_DIR, safe_filename)):
+        return "File not found", 404
+    return send_from_directory(OUTPUT_DIR, safe_filename, as_attachment=True)
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
