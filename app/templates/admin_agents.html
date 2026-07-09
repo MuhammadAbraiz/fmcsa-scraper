@@ -1,0 +1,52 @@
+{% extends 'base.html' %}
+{% block title %}Manage Agents{% endblock %}
+{% block content %}
+<div class="card">
+    <h1>Sales Agents</h1>
+    {% if agents %}
+    <table>
+        <thead><tr><th>Username</th><th>Full Name</th><th>Status</th><th>Created</th><th></th></tr></thead>
+        <tbody>
+            {% for a in agents %}
+            <tr>
+                <td><a href="{{ url_for('admin.agent_detail', user_id=a.id) }}">{{ a.username }}</a></td>
+                <td>{{ a.full_name or '' }}</td>
+                <td><span class="badge {{ 'badge-active' if a.is_active else 'badge-inactive' }}">{{ 'Active' if a.is_active else 'Inactive' }}</span></td>
+                <td>{{ a.created_at }}</td>
+                <td>
+                    {% if a.is_active %}
+                    <form method="post" action="{{ url_for('admin.deactivate_agent', user_id=a.id) }}" style="display:inline;">
+                        <button type="submit" class="btn-danger btn-small">Deactivate</button>
+                    </form>
+                    {% else %}
+                    <form method="post" action="{{ url_for('admin.activate_agent', user_id=a.id) }}" style="display:inline;">
+                        <button type="submit" class="btn-success btn-small">Activate</button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="table-empty">No agents yet — create one below.</div>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>Create Agent</h2>
+    {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+    <form method="post">
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" required>
+
+        <label for="full_name">Full Name</label>
+        <input type="text" id="full_name" name="full_name">
+
+        <label for="password">Initial Password (min 6 characters)</label>
+        <input type="password" id="password" name="password" required minlength="6">
+
+        <button type="submit">Create Agent</button>
+    </form>
+</div>
+{% endblock %}

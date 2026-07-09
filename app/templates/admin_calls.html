@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+{% block title %}Call Log{% endblock %}
+{% block content %}
+<div class="card">
+    <div class="section-header">
+        <h1 style="margin:0;">Call Log</h1>
+        <form method="get" style="flex-direction: row; gap: 0.5em;">
+            <select name="agent_id" onchange="this.form.submit()">
+                <option value="">All Agents</option>
+                {% for a in agents %}
+                <option value="{{ a.id }}" {{ 'selected' if selected_agent_id == a.id else '' }}>{{ a.username }}</option>
+                {% endfor %}
+            </select>
+        </form>
+    </div>
+    {% if calls %}
+    <table>
+        <thead><tr><th>When</th><th>Agent</th><th>Lead</th><th>Phone</th><th>Outcome</th><th>Note</th></tr></thead>
+        <tbody>
+            {% for call in calls %}
+            <tr>
+                <td>{{ call.called_at }}</td>
+                <td><a href="{{ url_for('admin.agent_detail', user_id=call.agent_id) }}">{{ call.agent_username }}</a></td>
+                <td><a href="{{ url_for('agent.lead_detail', lead_id=call.lead_id) }}">{{ call.legal_name }}</a></td>
+                <td>{{ call.lead_phone }}</td>
+                <td>{{ call.outcome or '—' }}</td>
+                <td>{{ call.note or '' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="table-empty">No calls logged yet.</div>
+    {% endif %}
+</div>
+{% endblock %}

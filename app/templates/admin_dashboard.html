@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+{% block title %}Admin Dashboard{% endblock %}
+{% block content %}
+<div class="card">
+    <h1>Admin Dashboard</h1>
+    <div class="summary-cards">
+        <div class="summary-card"><div class="value">{{ summary.total_leads }}</div><div class="label">Total Leads</div></div>
+        <div class="summary-card"><div class="value">{{ summary.active_agents }}</div><div class="label">Active Agents</div></div>
+        <div class="summary-card"><div class="value">{{ summary.jobs_today }}</div><div class="label">Searches Today</div></div>
+        <div class="summary-card"><div class="value">{{ summary.calls_today }}</div><div class="label">Calls Today</div></div>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Recent Searches (All Agents)</h2>
+    {% if recent_jobs %}
+    <table>
+        <thead><tr><th>Started</th><th>Agent</th><th>MC Range</th><th>Status</th><th>Processed / Total</th><th>Found</th></tr></thead>
+        <tbody>
+            {% for job in recent_jobs %}
+            <tr>
+                <td>{{ job.started_at }}</td>
+                <td><a href="{{ url_for('admin.agent_detail', user_id=job.agent_id) }}">{{ job.agent_username }}</a></td>
+                <td>{{ job.start_mc }} – {{ job.end_mc }}</td>
+                <td>{{ job.status }}</td>
+                <td>{{ job.processed }} / {{ job.total }}</td>
+                <td>{{ job.found }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="table-empty">No searches yet.</div>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>Recent Calls (All Agents)</h2>
+    {% if recent_calls %}
+    <table>
+        <thead><tr><th>When</th><th>Agent</th><th>Lead</th><th>Outcome</th><th>Note</th></tr></thead>
+        <tbody>
+            {% for call in recent_calls %}
+            <tr>
+                <td>{{ call.called_at }}</td>
+                <td>{{ call.agent_username }}</td>
+                <td><a href="{{ url_for('agent.lead_detail', lead_id=call.lead_id) }}">{{ call.legal_name }}</a></td>
+                <td>{{ call.outcome or '—' }}</td>
+                <td>{{ call.note or '' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="table-empty">No calls logged yet.</div>
+    {% endif %}
+</div>
+{% endblock %}

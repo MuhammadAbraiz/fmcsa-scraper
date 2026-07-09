@@ -1,0 +1,102 @@
+{% extends 'base.html' %}
+{% block title %}{{ lead.legal_name }} — Lead Detail{% endblock %}
+{% block content %}
+<div class="card">
+    <h1>{{ lead.legal_name }}</h1>
+    <span class="equipment-tag">{{ lead.likely_equipment }}</span>
+
+    <dl class="lead-fields" style="margin-top:1.5em;">
+        <dt>USDOT Number</dt><dd>{{ lead.usdot }}</dd>
+        <dt>MC Number</dt><dd>{{ lead.mc_number }}</dd>
+        <dt>MC/MX/FF Numbers</dt><dd>{{ lead.mc_mx_ff_numbers }}</dd>
+        <dt>Entity Type</dt><dd>{{ lead.entity_type }}</dd>
+        <dt>Address</dt><dd>{{ lead.address }}</dd>
+        <dt>Phone</dt><dd>{{ lead.phone }}</dd>
+        <dt>Email</dt><dd>{{ lead.email }}</dd>
+        <dt>Power Units</dt><dd>{{ lead.power_units }}</dd>
+        <dt>Drivers</dt><dd>{{ lead.drivers }}</dd>
+        <dt>MCS-150 Form Date</dt><dd>{{ lead.mcs_150_form_date }}</dd>
+        <dt>MCS-150 Mileage</dt><dd>{{ lead.mcs_150_mileage }} ({{ lead.mcs_150_mileage_year }})</dd>
+        <dt>Out of Service Date</dt><dd>{{ lead.out_of_service_date }}</dd>
+        <dt>Operating Status</dt><dd>{{ lead.operating_status }}</dd>
+        <dt>Operation Classification</dt><dd>{{ lead.operation_classification }}</dd>
+        <dt>Carrier Operation</dt><dd>{{ lead.carrier_operation }}</dd>
+        <dt>Cargo Carried</dt><dd>{{ lead.cargo_carried }}</dd>
+    </dl>
+
+    {% if lead.phone %}
+    <a href="tel:{{ lead.phone }}" id="call-btn" class="btn btn-success">Call {{ lead.phone }}</a>
+    {% endif %}
+
+    <div id="outcome-panel" class="outcome-panel">
+        <div class="status-message">Call logged. Select an outcome:</div>
+        <div class="outcome-buttons" id="outcome-buttons">
+            {% for outcome in outcomes %}
+            <button type="button" class="outcome-btn" data-outcome="{{ outcome }}">{{ outcome }}</button>
+            {% endfor %}
+        </div>
+        <textarea id="call-note" rows="2" style="width:100%; padding:0.5em; border:1px solid #ccc; border-radius:4px;" placeholder="Optional note..."></textarea>
+        <button type="button" id="save-outcome-btn" class="btn-small" style="margin-top:0.6em;">Save</button>
+        <div id="outcome-saved" class="status-message" style="display:none;">Saved.</div>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Call History</h2>
+    {% if calls %}
+    <table>
+        <thead><tr><th>When</th><th>Agent</th><th>Outcome</th><th>Note</th></tr></thead>
+        <tbody>
+            {% for call in calls %}
+            <tr>
+                <td>{{ call.called_at }}</td>
+                <td>{{ call.agent_username }}</td>
+                <td>{{ call.outcome or '—' }}</td>
+                <td>{{ call.note or '' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="table-empty">No calls logged yet for this lead.</div>
+    {% endif %}
+</div>
+
+<script>
+    const callBtn = document.getElementById('call-btn');
+    const outcomePanel = document.getElementById('outcome-panel');
+    let currentCallId = null;
+    let selectedOutcome = null;
+
+    if (callBtn) {
+        callBtn.addEventListener('click', async () => {
+            try {
+                const res = await fetch('/leads/{{ lead.id }}/call', { method: 'POST' });
+                const data = await res.json();
+                currentCallId = data.call_id;
+                outcomePanel.style.display = 'block';
+            } catch (err) {}
+        });
+    }
+
+    document.getElementById('outcome-buttons').addEventListener('click', (e) => {
+        if (!e.target.classList.contains('outcome-btn')) return;
+        document.querySelectorAll('.outcome-btn').forEach(b => b.classList.remove('selected'));
+        e.target.classList.add('selected');
+        selectedOutcome = e.target.dataset.outcome;
+    });
+
+    document.getElementById('save-outcome-btn').addEventListener('click', async () => {
+        if (!currentCallId || !selectedOutcome) return;
+        const note = document.getElementById('call-note').value;
+        const body = new FormData();
+        body.append('outcome', selectedOutcome);
+        body.append('note', note);
+        const res = await fetch(`/calls/${currentCallId}/outcome`, { method: 'POST', body });
+        if (res.ok) {
+            document.getElementById('outcome-saved').style.display = 'block';
+            setTimeout(() => window.location.reload(), 800);
+        }
+    });
+</script>
+{% endblock %}

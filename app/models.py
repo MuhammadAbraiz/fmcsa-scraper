@@ -1,0 +1,333 @@
+from werkzeug.security import generate_password_hash, check_password_hash
+
+from .db import get_connection
+
+LEAD_FIELDS = [
+    'mc_number', 'legal_name', 'mc_mx_ff_numbers', 'entity_type', 'address',
+    'phone', 'email', 'power_units', 'drivers', 'mcs_150_form_date',
+    'mcs_150_mileage', 'mcs_150_mileage_year', 'out_of_service_date',
+    'operating_status', 'operation_classification', 'carrier_operation',
+    'cargo_carried', 'likely_equipment',
+]
+
+CALL_OUTCOMES = ['Interested', 'Not Interested', 'No Answer', 'Voicemail', 'Callback Later', 'Other']
+
+
+# --- users ---
+
+def create_user(username, password, role, full_name=''):
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            'INSERT INTO users (username, password_hash, role, full_name) VALUES (?, ?, ?, ?)',
+            (username, generate_password_hash(password), role, full_name),
+        )
+        conn.commit()
+        return cur.lastrowid
+    finally:
+        conn.close()
+
+
+def verify_login(username, password):
+    user = get_user_by_username(username)
+    if not user:
+        return None
+    if not check_password_hash(user['password_hash'], password):
+        return None
+    return user
+
+
+def get_user_by_username(username):
+    conn = get_connection()
+    try:
+        row = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def get_user_by_id(user_id):
+    conn = get_connection()
+    try:
+        row = conn.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def list_agents():
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM users WHERE role = 'agent' ORDER BY created_at DESC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def set_user_active(user_id, is_active):
+    conn = get_connection()
+    try:
+        conn.execute('UPDATE users SET is_active = ? WHERE id = ?', (1 if is_active else 0, user_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def set_user_password(user_id, new_password):
+    conn = get_connection()
+    try:
+        conn.execute(
+            'UPDATE users SET password_hash = ? WHERE id = ?',
+            (generate_password_hash(new_password), user_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+# --- search jobs ---
+
+def create_search_job(job_uuid, agent_id, start_mc, end_mc, total):
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            'INSERT INTO search_jobs (job_uuid, agent_id, start_mc, end_mc, total) VALUES (?, ?, ?, ?, ?)',
+            (job_uuid, agent_id, start_mc, end_mc, total),
+        )
+        conn.commit()
+        return cur.lastrowid
+    finally:
+        conn.close()
+
+
+def update_search_job(job_uuid, **fields):
+    if not fields:
+        return
+    auto_finish = fields.get('status') in ('done', 'error')
+
+    cols = [f'{k} = ?' for k in fields]
+    params = list(fields.values())
+    if auto_finish:
+        cols.append("finished_at = datetime('now')")
+    params.append(job_uuid)
+
+    conn = get_connection()
+    try:
+        conn.execute(f"UPDATE search_jobs SET {', '.join(cols)} WHERE job_uuid = ?", params)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_search_job(job_uuid):
+    conn = get_connection()
+    try:
+        row = conn.execute('SELECT * FROM search_jobs WHERE job_uuid = ?', (job_uuid,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def list_search_jobs(agent_id=None, limit=50):
+    conn = get_connection()
+    try:
+        if agent_id is not None:
+            rows = conn.execute(
+                'SELECT sj.*, u.username AS agent_username FROM search_jobs sj '
+                'JOIN users u ON u.id = sj.agent_id '
+                'WHERE sj.agent_id = ? ORDER BY sj.started_at DESC LIMIT ?',
+                (agent_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                'SELECT sj.*, u.username AS agent_username FROM search_jobs sj '
+                'JOIN users u ON u.id = sj.agent_id '
+                'ORDER BY sj.started_at DESC LIMIT ?',
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+# --- leads ---
+
+def upsert_lead(fields, job_row_id, agent_id):
+    """fields must include 'usdot' plus any of LEAD_FIELDS. Returns the lead row (dict)."""
+    usdot = fields.get('usdot')
+    if not usdot:
+        return None
+
+    conn = get_connection()
+    try:
+        existing = conn.execute('SELECT id FROM leads WHERE usdot = ?', (usdot,)).fetchone()
+        cols = [c for c in LEAD_FIELDS if c in fields]
+        if existing:
+            set_clause = ', '.join(f'{c} = ?' for c in cols)
+            params = [fields[c] for c in cols] + [usdot]
+            conn.execute(
+                f"UPDATE leads SET {set_clause}, updated_at = datetime('now') WHERE usdot = ?",
+                params,
+            )
+        else:
+            insert_cols = ['usdot'] + cols + ['first_found_job_id', 'first_found_by_agent_id']
+            placeholders = ', '.join('?' for _ in insert_cols)
+            params = [usdot] + [fields[c] for c in cols] + [job_row_id, agent_id]
+            conn.execute(
+                f"INSERT INTO leads ({', '.join(insert_cols)}) VALUES ({placeholders})",
+                params,
+            )
+        conn.commit()
+        row = conn.execute('SELECT * FROM leads WHERE usdot = ?', (usdot,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def list_leads(q=None, limit=500):
+    conn = get_connection()
+    try:
+        if q:
+            like = f'%{q}%'
+            rows = conn.execute(
+                'SELECT * FROM leads WHERE legal_name LIKE ? OR usdot LIKE ? OR mc_number LIKE ? '
+                'ORDER BY created_at DESC LIMIT ?',
+                (like, like, like, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute('SELECT * FROM leads ORDER BY created_at DESC LIMIT ?', (limit,)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_lead(lead_id):
+    conn = get_connection()
+    try:
+        row = conn.execute('SELECT * FROM leads WHERE id = ?', (lead_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def list_new_leads_for_job(job_row_id, after_id=0):
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            'SELECT * FROM leads WHERE first_found_job_id = ? AND id > ? ORDER BY id ASC',
+            (job_row_id, after_id),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def list_all_leads_for_export():
+    conn = get_connection()
+    try:
+        rows = conn.execute('SELECT * FROM leads ORDER BY created_at DESC').fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+# --- call logs ---
+
+def create_call_log(lead_id, agent_id):
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            'INSERT INTO call_logs (lead_id, agent_id) VALUES (?, ?)',
+            (lead_id, agent_id),
+        )
+        conn.commit()
+        return cur.lastrowid
+    finally:
+        conn.close()
+
+
+def get_call_log(call_id):
+    conn = get_connection()
+    try:
+        row = conn.execute('SELECT * FROM call_logs WHERE id = ?', (call_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def update_call_outcome(call_id, outcome, note, requesting_user):
+    call = get_call_log(call_id)
+    if not call:
+        return False
+    if requesting_user['role'] != 'admin' and requesting_user['id'] != call['agent_id']:
+        return False
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE call_logs SET outcome = ?, note = ?, updated_at = datetime('now') WHERE id = ?",
+            (outcome, note, call_id),
+        )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def list_call_logs(agent_id=None, limit=200):
+    conn = get_connection()
+    try:
+        base = (
+            'SELECT cl.*, u.username AS agent_username, l.legal_name, l.usdot, l.phone AS lead_phone '
+            'FROM call_logs cl '
+            'JOIN users u ON u.id = cl.agent_id '
+            'JOIN leads l ON l.id = cl.lead_id '
+        )
+        if agent_id is not None:
+            rows = conn.execute(
+                base + 'WHERE cl.agent_id = ? ORDER BY cl.called_at DESC LIMIT ?',
+                (agent_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(base + 'ORDER BY cl.called_at DESC LIMIT ?', (limit,)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_call_logs_for_lead(lead_id):
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            'SELECT cl.*, u.username AS agent_username FROM call_logs cl '
+            'JOIN users u ON u.id = cl.agent_id '
+            'WHERE cl.lead_id = ? ORDER BY cl.called_at DESC',
+            (lead_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+# --- dashboard summary ---
+
+def dashboard_summary():
+    conn = get_connection()
+    try:
+        total_leads = conn.execute('SELECT COUNT(*) FROM leads').fetchone()[0]
+        active_agents = conn.execute("SELECT COUNT(*) FROM users WHERE role='agent' AND is_active=1").fetchone()[0]
+        jobs_today = conn.execute(
+            "SELECT COUNT(*) FROM search_jobs WHERE date(started_at) = date('now')"
+        ).fetchone()[0]
+        calls_today = conn.execute(
+            "SELECT COUNT(*) FROM call_logs WHERE date(called_at) = date('now')"
+        ).fetchone()[0]
+        return {
+            'total_leads': total_leads,
+            'active_agents': active_agents,
+            'jobs_today': jobs_today,
+            'calls_today': calls_today,
+        }
+    finally:
+        conn.close()

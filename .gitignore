@@ -3,3 +3,6 @@ __pycache__/
 *.pyc
 outputs/
 jobs/
+app.db
+app.db-wal
+app.db-shm

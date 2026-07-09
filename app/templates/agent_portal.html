@@ -1,0 +1,249 @@
+{% extends 'base.html' %}
+{% block title %}Search Portal{% endblock %}
+{% block content %}
+<div class="card">
+    <h1>Carrier Lead Search</h1>
+    <p>Enter an MC number range to scan. Matching carriers (1 power unit, authorized for property) appear below in real time, with email pulled from FMCSA and a best-effort "Likely Equipment" guess from cargo data — not a verified fact, just a hint for prioritizing calls.</p>
+    <form id="scrape-form">
+        <label for="start_mc">Start MC Number:</label>
+        <input type="number" id="start_mc" name="start_mc" required value="1560000">
+
+        <label for="end_mc">End MC Number:</label>
+        <input type="number" id="end_mc" name="end_mc" required value="1560100">
+
+        <button type="submit" id="submit-btn">Start Search</button>
+    </form>
+
+    <div id="progress-section">
+        <div class="progress-bar-track">
+            <div class="progress-bar-fill" id="progress-bar-fill"></div>
+        </div>
+        <div id="progress-text">Starting...</div>
+    </div>
+
+    <div id="result"></div>
+
+    <div id="results-section" class="section" style="display:none;">
+        <div class="section-header">
+            <h2>Results From This Search</h2>
+        </div>
+        <div id="results-empty" class="table-empty" style="display:none;">No matches yet — still scanning...</div>
+        <table id="results-table" style="display:none;">
+            <thead>
+                <tr><th>Legal Name</th><th>MC</th><th>Phone</th><th>Email</th><th>Likely Equipment</th><th></th></tr>
+            </thead>
+            <tbody id="results-tbody"></tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card">
+    <div class="section-header">
+        <h2>All Leads (Shared Pool)</h2>
+        <div>
+            <input type="text" id="leads-filter" placeholder="Filter by name, USDOT, MC..." style="width:220px; display:inline-block;">
+            <button type="button" id="refresh-leads-btn" class="btn-secondary btn-small">Refresh</button>
+            <a href="{{ url_for('agent.export_csv') }}" class="btn btn-success btn-small">Export CSV</a>
+        </div>
+    </div>
+    <div id="leads-empty" class="table-empty" style="display:none;">No leads yet.</div>
+    <table id="leads-table" style="display:none;">
+        <thead>
+            <tr><th>Legal Name</th><th>MC</th><th>Phone</th><th>Email</th><th>Likely Equipment</th><th></th></tr>
+        </thead>
+        <tbody id="leads-tbody"></tbody>
+    </table>
+</div>
+
+<script>
+    const form = document.getElementById('scrape-form');
+    const submitBtn = document.getElementById('submit-btn');
+    const progressSection = document.getElementById('progress-section');
+    const progressFill = document.getElementById('progress-bar-fill');
+    const progressText = document.getElementById('progress-text');
+    const resultDiv = document.getElementById('result');
+    const resultsSection = document.getElementById('results-section');
+    const resultsTbody = document.getElementById('results-tbody');
+    const resultsTable = document.getElementById('results-table');
+    const resultsEmpty = document.getElementById('results-empty');
+    const ACTIVE_JOB_KEY = 'fmcsa_active_job_id';
+    let pollTimer = null;
+    let lastSeenLeadId = 0;
+
+    function leadRowHtml(lead) {
+        const phone = lead.phone || '';
+        const email = lead.email || '';
+        return `
+            <tr>
+                <td><a href="/leads/${lead.id}">${lead.legal_name || ''}</a></td>
+                <td>${lead.mc_number || ''}</td>
+                <td>${phone}</td>
+                <td>${email}</td>
+                <td>${lead.likely_equipment || ''}</td>
+                <td>
+                    ${phone ? `<a href="tel:${phone}" class="btn btn-success btn-small" onclick="logCall(${lead.id})">Call</a>` : ''}
+                    <a href="/leads/${lead.id}" class="btn btn-secondary btn-small">Details</a>
+                </td>
+            </tr>`;
+    }
+
+    function logCall(leadId) {
+        fetch(`/leads/${leadId}/call`, { method: 'POST' }).catch(() => {});
+    }
+    window.logCall = logCall;
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (pollTimer) clearInterval(pollTimer);
+        lastSeenLeadId = 0;
+        resultsTbody.innerHTML = '';
+        resultsSection.style.display = 'block';
+        resultsTable.style.display = 'none';
+        resultsEmpty.style.display = 'block';
+
+        resultDiv.style.display = 'none';
+        resultDiv.className = '';
+        resultDiv.innerHTML = '';
+        progressFill.style.width = '0%';
+        progressText.textContent = 'Starting...';
+        progressSection.style.display = 'block';
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Running...';
+
+        try {
+            const response = await fetch('/search', { method: 'POST', body: new FormData(form) });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Failed to start job');
+            localStorage.setItem(ACTIVE_JOB_KEY, data.job_id);
+            pollStatus(data.job_id);
+        } catch (err) {
+            progressSection.style.display = 'none';
+            showResult(false, err.message);
+            resetButton();
+        }
+    });
+
+    function pollStatus(jobId) {
+        pollTimer = setInterval(() => tick(jobId), 1500);
+        tick(jobId);
+    }
+
+    async function tick(jobId) {
+        try {
+            const res = await fetch(`/search/${jobId}/status`);
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Job not found');
+            updateProgress(data);
+            await fetchNewLeads(jobId);
+            if (data.status === 'done' || data.status === 'error') {
+                clearInterval(pollTimer);
+                finishJob(data);
+            }
+        } catch (err) {
+            clearInterval(pollTimer);
+            localStorage.removeItem(ACTIVE_JOB_KEY);
+            showResult(false, err.message);
+            resetButton();
+        }
+    }
+
+    async function fetchNewLeads(jobId) {
+        const res = await fetch(`/search/${jobId}/leads?after_id=${lastSeenLeadId}`);
+        if (!res.ok) return;
+        const leads = await res.json();
+        if (!leads.length) return;
+        resultsEmpty.style.display = 'none';
+        resultsTable.style.display = 'table';
+        for (const lead of leads) {
+            resultsTbody.insertAdjacentHTML('beforeend', leadRowHtml(lead));
+            lastSeenLeadId = Math.max(lastSeenLeadId, lead.id);
+        }
+    }
+
+    async function resumeActiveJobIfAny() {
+        const jobId = localStorage.getItem(ACTIVE_JOB_KEY);
+        if (!jobId) return;
+        try {
+            const res = await fetch(`/search/${jobId}/status`);
+            if (!res.ok) { localStorage.removeItem(ACTIVE_JOB_KEY); return; }
+            const data = await res.json();
+            resultsSection.style.display = 'block';
+            progressSection.style.display = 'block';
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Running...';
+            updateProgress(data);
+            await fetchNewLeads(jobId);
+            if (data.status === 'done' || data.status === 'error') {
+                finishJob(data);
+            } else {
+                pollStatus(jobId);
+            }
+        } catch (err) {
+            localStorage.removeItem(ACTIVE_JOB_KEY);
+        }
+    }
+
+    function updateProgress(data) {
+        const total = data.total || 1;
+        const processed = data.processed || 0;
+        const pct = Math.min(100, Math.round((processed / total) * 100));
+        progressFill.style.width = pct + '%';
+        progressText.textContent = `Processed ${processed} / ${total} MC numbers — ${data.found || 0} match(es) found`;
+    }
+
+    function finishJob(data) {
+        resetButton();
+        localStorage.removeItem(ACTIVE_JOB_KEY);
+        if (data.status === 'error') {
+            showResult(false, data.message || 'Job failed.');
+            return;
+        }
+        showResult(true, data.message || 'Done.');
+        loadAllLeads();
+    }
+
+    function showResult(success, message) {
+        resultDiv.innerHTML = message;
+        resultDiv.className = success ? 'success' : 'error';
+        resultDiv.style.display = 'block';
+    }
+
+    function resetButton() {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Start Search';
+    }
+
+    // --- shared lead pool ---
+    const leadsTbody = document.getElementById('leads-tbody');
+    const leadsTable = document.getElementById('leads-table');
+    const leadsEmpty = document.getElementById('leads-empty');
+    const leadsFilter = document.getElementById('leads-filter');
+
+    async function loadAllLeads() {
+        const q = leadsFilter.value.trim();
+        const url = q ? `/leads?q=${encodeURIComponent(q)}` : '/leads';
+        try {
+            const res = await fetch(url);
+            const leads = await res.json();
+            if (!leads.length) {
+                leadsTable.style.display = 'none';
+                leadsEmpty.style.display = 'block';
+                return;
+            }
+            leadsTbody.innerHTML = leads.map(leadRowHtml).join('');
+            leadsTable.style.display = 'table';
+            leadsEmpty.style.display = 'none';
+        } catch (err) {
+            leadsEmpty.textContent = 'Could not load leads.';
+            leadsEmpty.style.display = 'block';
+            leadsTable.style.display = 'none';
+        }
+    }
+
+    document.getElementById('refresh-leads-btn').addEventListener('click', loadAllLeads);
+    leadsFilter.addEventListener('keydown', (e) => { if (e.key === 'Enter') loadAllLeads(); });
+
+    loadAllLeads();
+    resumeActiveJobIfAny();
+</script>
+{% endblock %}

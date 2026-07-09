@@ -1,23 +1,19 @@
-from flask import Flask, request, jsonify, send_from_directory, render_template
-import requests
-import csv
+import concurrent.futures
+import json
 import os
 import re
-import json
-import uuid
 import threading
 import time
-import smtplib
-import concurrent.futures
-from datetime import datetime
-from email.message import EmailMessage
+import uuid
+
+import requests
 from dotenv import load_dotenv
+
+from . import models
 
 load_dotenv()
 
-app = Flask(__name__)
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUTPUT_DIR = os.path.join(BASE_DIR, 'outputs')
 JOBS_DIR = os.path.join(BASE_DIR, 'jobs')
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -29,22 +25,6 @@ if not api_key:
     raise RuntimeError('SAFER_API_KEY environment variable not set. Please set it in your environment.')
 base_url = "https://saferwebapi.com/v2/mcmx/snapshot/"
 headers = {"x-api-key": api_key}
-
-CSV_COLUMNS = [
-    'Legal Name', 'USDOT Number', 'MC/MX/FF Numbers', 'Entity Type', 'Address',
-    'Phone', 'Email', 'Power Units', 'Drivers', 'MCS-150 Form Date', 'MCS-150 Mileage',
-    'MCS-150 Mileage Year', 'Out of Service Date', 'Operating Status',
-    'Operation Classification', 'Carrier Operation', 'Cargo Carried',
-    'Likely Equipment (Inferred)',
-]
-
-CSV_FIELD_ORDER = [
-    'legal_name', 'usdot', 'mc_mx_ff_numbers', 'entity_type', 'address',
-    'phone', 'email', 'power_units', 'drivers', 'mcs_150_form_date', 'mcs_150_mileage',
-    'mcs_150_mileage_year', 'out_of_service_date', 'operating_status',
-    'operation_classification', 'carrier_operation', 'cargo_carried',
-    'likely_equipment',
-]
 
 FMCSA_CARRIER_URL = "https://ai.fmcsa.dot.gov/SMS/Carrier/{usdot}/CarrierRegistration.aspx"
 FMCSA_REQUEST_HEADERS = {
@@ -68,6 +48,7 @@ def scrape_carrier_email(usdot):
         return ''
     match = EMAIL_FIELD_RE.search(response.text)
     return match.group(1).strip() if match else ''
+
 
 # FMCSA's cargo_carried field is a fixed MCS-150 commodity list — it has no
 # concept of trailer/equipment type. This is a best-effort guess from cargo
@@ -195,60 +176,40 @@ def extract_data(data):
     return None
 
 
-def send_csv_email(to_email, csv_file_path):
-    gmail_user = os.environ.get('GMAIL_USER')
-    gmail_pass = os.environ.get('GMAIL_PASS')
-    msg = EmailMessage()
-    msg['Subject'] = 'Your Requested CSV File'
-    msg['From'] = gmail_user
-    msg['To'] = to_email
-    msg.set_content('Attached is your requested CSV file.')
-    with open(csv_file_path, 'rb') as f:
-        file_data = f.read()
-        file_name = os.path.basename(csv_file_path)
-    msg.add_attachment(file_data, maintype='application', subtype='octet-stream', filename=file_name)
-    with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
-        smtp.login(gmail_user, gmail_pass)
-        smtp.send_message(msg)
-
-
 SCRAPE_WORKERS = 10
 
 
-def run_scrape_job(job_id, start_mc, end_mc, user_email):
+def run_scrape_job(job_id, start_mc, end_mc, agent_id):
     total = end_mc - start_mc + 1
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    output_csv_file = os.path.join(OUTPUT_DIR, f'output_{start_mc}-{end_mc}_{timestamp}.csv')
+    job_row_id = models.create_search_job(job_id, agent_id, start_mc, end_mc, total)
 
     write_job(job_id, status='running', processed=0, total=total, found=0,
-              start_mc=start_mc, end_mc=end_mc, download_url=None, message=None)
-
-    with open(output_csv_file, 'w', newline='', encoding='utf-8') as f:
-        csv.writer(f).writerow(CSV_COLUMNS)
+              start_mc=start_mc, end_mc=end_mc, message=None)
 
     def process_mc(mc_number):
         carrier_data = extract_data(fetch_mc_data(mc_number))
         if carrier_data:
+            carrier_data['mc_number'] = mc_number
             carrier_data['email'] = scrape_carrier_email(carrier_data.get('usdot'))
             time.sleep(1)  # be polite to FMCSA's site; only matches hit this page
         return carrier_data
 
-    csv_lock = threading.Lock()
     counters = {'processed': 0, 'found': 0, 'last_write': 0.0}
 
     def handle_result(carrier_data):
         counters['processed'] += 1
         if carrier_data:
-            counters['found'] += 1
-            with csv_lock:
-                with open(output_csv_file, 'a', newline='', encoding='utf-8') as f:
-                    csv.writer(f).writerow([carrier_data[key] for key in CSV_FIELD_ORDER])
+            lead_row = models.upsert_lead(carrier_data, job_row_id, agent_id)
+            if lead_row:
+                counters['found'] += 1
+            # else: match had no usdot to dedupe on — still counted in processed, not in found
 
         now = time.monotonic()
         is_last = counters['processed'] == total
         if carrier_data is not None or is_last or now - counters['last_write'] >= 1.0:
             counters['last_write'] = now
             write_job(job_id, processed=counters['processed'], found=counters['found'])
+            models.update_search_job(job_id, processed=counters['processed'], found=counters['found'])
 
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=SCRAPE_WORKERS) as executor:
@@ -257,90 +218,17 @@ def run_scrape_job(job_id, start_mc, end_mc, user_email):
                 handle_result(future.result())
     except Exception as e:
         write_job(job_id, status='error', message=f'Scrape failed: {e}')
+        models.update_search_job(job_id, status='error', message=f'Scrape failed: {e}')
         return
 
     found = counters['found']
-    if found == 0:
-        os.remove(output_csv_file)
-        write_job(job_id, status='done', message='No valid data found matching the criteria.')
-        return
-
-    filename = os.path.basename(output_csv_file)
-    download_url = f"/download/{filename}"
-
-    if not (os.environ.get('GMAIL_USER') and os.environ.get('GMAIL_PASS')):
-        write_job(job_id, status='done', message='Email not configured.', download_url=download_url)
-        return
-
-    try:
-        send_csv_email(user_email, output_csv_file)
-    except Exception as e:
-        write_job(job_id, status='done', message=f'Email failed to send ({e}).', download_url=download_url)
-        return
-
-    os.remove(output_csv_file)
-    write_job(job_id, status='done', message=f'CSV sent to {user_email}!')
+    message = 'No valid data found matching the criteria.' if found == 0 else f'Found {found} matching carrier(s).'
+    write_job(job_id, status='done', message=message)
+    models.update_search_job(job_id, status='done', message=message)
 
 
-@app.route('/')
-def index():
-    return render_template('index.html')
-
-
-@app.route('/generate-csv', methods=['POST'])
-def generate_csv():
-    try:
-        start_mc = int(request.form.get('start_mc', 1560000))
-        end_mc = int(request.form.get('end_mc', 1560100))
-    except (TypeError, ValueError):
-        return jsonify({'error': 'Start and end MC numbers must be integers.'}), 400
-
-    if end_mc < start_mc:
-        return jsonify({'error': 'End MC number must be greater than or equal to start MC number.'}), 400
-
-    user_email = request.form.get('user_email', '')
-
+def start_scrape_job(start_mc, end_mc, agent_id):
     job_id = uuid.uuid4().hex
-    thread = threading.Thread(target=run_scrape_job, args=(job_id, start_mc, end_mc, user_email), daemon=True)
+    thread = threading.Thread(target=run_scrape_job, args=(job_id, start_mc, end_mc, agent_id), daemon=True)
     thread.start()
-
-    return jsonify({'job_id': job_id})
-
-
-@app.route('/status/<job_id>')
-def job_status(job_id):
-    data = read_job(job_id)
-    if data is None:
-        return jsonify({'error': 'Job not found'}), 404
-    return jsonify(data)
-
-
-@app.route('/files')
-def list_files():
-    files = []
-    for filename in os.listdir(OUTPUT_DIR):
-        if not (filename.startswith('output_') and filename.endswith('.csv')):
-            continue
-        path = os.path.join(OUTPUT_DIR, filename)
-        files.append({
-            'filename': filename,
-            'size_bytes': os.path.getsize(path),
-            'modified_at': datetime.fromtimestamp(os.path.getmtime(path)).strftime('%Y-%m-%d %H:%M:%S'),
-            'download_url': f'/download/{filename}',
-        })
-    files.sort(key=lambda f: f['modified_at'], reverse=True)
-    return jsonify(files)
-
-
-@app.route('/download/<path:filename>')
-def download_file(filename):
-    safe_filename = os.path.basename(filename)
-    if not safe_filename.startswith('output_') or not safe_filename.endswith('.csv'):
-        return "Invalid file", 400
-    if not os.path.exists(os.path.join(OUTPUT_DIR, safe_filename)):
-        return "File not found", 404
-    return send_from_directory(OUTPUT_DIR, safe_filename, as_attachment=True)
-
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    return job_id

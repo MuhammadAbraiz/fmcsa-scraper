@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block title %}Legacy CSVs{% endblock %}
+{% block content %}
+<div class="card">
+    <h1>Legacy CSV Files</h1>
+    <p>CSVs generated before the shared lead database existed. New searches no longer create files here — use the Search Portal and Export CSV instead.</p>
+    {% if files %}
+    <table>
+        <thead><tr><th>File</th><th>Size</th><th>Created</th><th></th></tr></thead>
+        <tbody>
+            {% for f in files %}
+            <tr>
+                <td>{{ f.filename }}</td>
+                <td>{{ '%.1f'|format(f.size_bytes / 1024) }} KB</td>
+                <td>{{ f.modified_at }}</td>
+                <td><a href="{{ f.download_url }}">Download</a></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="table-empty">No legacy CSV files on the server.</div>
+    {% endif %}
+</div>
+{% endblock %}

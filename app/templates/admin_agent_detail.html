@@ -1,0 +1,57 @@
+{% extends 'base.html' %}
+{% block title %}{{ agent.username }} — Agent Detail{% endblock %}
+{% block content %}
+<div class="card">
+    <h1>{{ agent.username }} <span class="badge {{ 'badge-active' if agent.is_active else 'badge-inactive' }}">{{ 'Active' if agent.is_active else 'Inactive' }}</span></h1>
+    <p>{{ agent.full_name or '' }} — created {{ agent.created_at }}</p>
+
+    <form method="post" action="{{ url_for('admin.reset_agent_password', user_id=agent.id) }}" style="max-width:320px;">
+        <label for="new_password">Reset Password (min 6 characters)</label>
+        <input type="password" id="new_password" name="new_password" required minlength="6">
+        <button type="submit" class="btn-small">Reset Password</button>
+    </form>
+</div>
+
+<div class="card">
+    <h2>Search History</h2>
+    {% if jobs %}
+    <table>
+        <thead><tr><th>Started</th><th>MC Range</th><th>Status</th><th>Processed / Total</th><th>Found</th></tr></thead>
+        <tbody>
+            {% for job in jobs %}
+            <tr>
+                <td>{{ job.started_at }}</td>
+                <td>{{ job.start_mc }} – {{ job.end_mc }}</td>
+                <td>{{ job.status }}</td>
+                <td>{{ job.processed }} / {{ job.total }}</td>
+                <td>{{ job.found }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="table-empty">No searches yet.</div>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>Call Log</h2>
+    {% if calls %}
+    <table>
+        <thead><tr><th>When</th><th>Lead</th><th>Outcome</th><th>Note</th></tr></thead>
+        <tbody>
+            {% for call in calls %}
+            <tr>
+                <td>{{ call.called_at }}</td>
+                <td><a href="{{ url_for('agent.lead_detail', lead_id=call.lead_id) }}">{{ call.legal_name }}</a></td>
+                <td>{{ call.outcome or '—' }}</td>
+                <td>{{ call.note or '' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="table-empty">No calls logged yet.</div>
+    {% endif %}
+</div>
+{% endblock %}

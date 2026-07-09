@@ -1,73 +1,64 @@
-# Scraper Flask App
+# FMCSA Lead Manager
 
-This repository contains a Flask web application that scrapes carrier email addresses from the FMCSA website and generates a CSV file based on MC numbers using the SaferWeb API.
+A small multi-user lead management app for a truck dispatch business. Scans an MC-number range against the SAFER API, filters to single-truck "authorized for property" carriers, pulls each carrier's registered email from FMCSA, and gives sales agents a live search portal with click-to-call and call logging. Admins manage agent accounts and see call/search activity across the team.
 
 ## Features
-- Web interface to input MC number range
-- Scrapes carrier emails using Selenium and ChromeDriver
-- Generates downloadable CSV files
+- Username/password accounts with two roles: **admin** and **agent**
+- Agent portal: enter an MC range, watch matching leads appear in real time
+- Click-to-call (`tel:`) with automatic call logging and an outcome/notes panel
+- Shared lead pool (all agents see all leads; calls are attributed per-agent)
+- Admin dashboard: manage agent accounts, view search history and call logs across the team
+- CSV export of the full lead pool on demand
 
 ## Requirements
-- Python 3.7+
-- Google Chrome or Chromium
-- ChromeDriver (matching your Chrome version)
-- pip (Python package manager)
+- Python 3.9+
+- A SAFER API key (SaferWebAPI)
 
-## Setup on AWS Linux
+## Setup
 
-### 1. Install System Dependencies
-```bash
-sudo yum update -y
-sudo yum install -y python3 python3-pip unzip wget
-
-# Install Google Chrome
-wget https://dl.google.com/linux/direct/google-chrome-stable_current_x86_64.rpm
-sudo yum install -y ./google-chrome-stable_current_x86_64.rpm
-
-# Find your Chrome version
-google-chrome --version
-
-# Download matching ChromeDriver (replace VERSION as needed)
-CHROME_VERSION=$(google-chrome --version | grep -oP '\d+\.\d+\.\d+')
-wget https://chromedriver.storage.googleapis.com/$(curl -sS https://chromedriver.storage.googleapis.com/LATEST_RELEASE_$CHROME_VERSION)/chromedriver_linux64.zip
-unzip chromedriver_linux64.zip
-sudo mv chromedriver /usr/bin/
-sudo chmod +x /usr/bin/chromedriver
-```
-
-### 2. Clone the Repository
-```bash
-git clone <your-repo-url>.git
-cd Scraper
-```
-
-### 3. Install Python Dependencies
+### 1. Install dependencies
 ```bash
 pip3 install -r requirements.txt
 ```
 
-### 4. Set Environment Variables
-Before running the app, set your SAFER API key:
-```bash
-export SAFER_API_KEY=your_api_key_here
+### 2. Configure environment variables
+Create a `.env` file in the project root:
 ```
-If you installed ChromeDriver to a custom path, set the `CHROMEDRIVER_PATH` environment variable:
-```bash
-export CHROMEDRIVER_PATH=/path/to/chromedriver
+SAFER_API_KEY=your_safer_api_key
+FLASK_SECRET_KEY=some_long_random_string
 ```
-
-### 5. Run the App
+Generate a secret key with:
 ```bash
-python3 app.py
+python3 -c "import secrets; print(secrets.token_hex(32))"
 ```
 
-The app will be available at `http://localhost:5000/`.
+### 3. Bootstrap the first admin account
+There's no signup page — the first admin is created via the Flask CLI:
+```bash
+python3 -m flask --app app create-admin <username> <password>
+```
+The admin can then create agent accounts from the web UI (`/admin/agents`).
+
+### 4. Run the app
+
+Local development:
+```bash
+python3 -m flask --app app run --host=0.0.0.0 --port=5000 --debug
+```
+
+Production (gunicorn):
+```bash
+gunicorn -w 2 -b 0.0.0.0:8080 --timeout 0 app:app
+```
+`--timeout 0` disables gunicorn's worker timeout — MC-range scrapes run as long-lived background threads and can take a while, especially on large ranges.
 
 ## Usage
-- Open the web interface.
-- Enter the MC number range.
-- Download the generated CSV file.
+- **Agents** log in and land on the Search Portal: enter a start/end MC number, watch matches appear live, click Call (dials via `tel:` and logs the attempt), then record an outcome (Interested, Not Interested, No Answer, Voicemail, Callback Later, Other) with an optional note.
+- **Admins** log in and land on the Dashboard: summary stats, recent searches and calls across all agents, and an Agents page to create/deactivate accounts and reset passwords.
+- Any user can export the full shared lead pool via "Export CSV" on the Search Portal.
 
 ## Notes
-- Make sure the `templates/index.html` file exists for the web interface.
-- For production, consider using a WSGI server (e.g., Gunicorn) and a reverse proxy (e.g., Nginx). 
+- Data is stored in a local SQLite file, `app.db` (WAL mode), created automatically on first run. Back it up periodically — it's not committed to git.
+- The "Likely Equipment" field on each lead is a best-effort guess inferred from FMCSA's cargo-type data (Dry Van / Reefer / Flatbed-Stepdeck / Box Truck) — FMCSA has no real equipment-type field, so this is a hint for prioritizing calls, not a verified fact. "Power Only" and "Hot Shot" carriers aren't distinguishable from this data at all.
+- Restarting the app (e.g. `systemctl restart`) kills any in-progress MC-range scrape — there's no resume; the leads already found up to that point are safely persisted, but the unscanned remainder of the range needs to be resubmitted.
+- Legacy CSV files generated by an older version of this app (before the DB-backed lead pool existed) are still reachable by admins under "Legacy CSVs" in the nav.
