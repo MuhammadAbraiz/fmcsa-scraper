@@ -69,7 +69,7 @@
                 <dt>Operating Status</dt><dd>${lead.operating_status || ''}</dd>
                 <dt>Cargo Carried</dt><dd>${lead.cargo_carried || ''}</dd>
             </dl>
-            ${lead.phone ? `<a href="tel:${lead.phone}" id="drawer-call-btn" class="btn btn-success" style="width:100%;">Call ${lead.phone}</a>` : ''}
+            ${lead.phone ? `<a href="tel:${lead.phone}" id="drawer-call-btn" class="btn btn-success${lead.been_called ? ' called' : ''}" style="width:100%;">Call ${lead.phone}</a>` : ''}
             <div id="drawer-outcome-panel" class="outcome-panel" style="text-align:left;">
                 <div class="status-message">Call logged. Select an outcome:</div>
                 <div class="outcome-buttons" id="drawer-outcome-buttons">
@@ -90,6 +90,7 @@
         const outcomePanel = document.getElementById('drawer-outcome-panel');
         if (callBtn) {
             callBtn.addEventListener('click', async () => {
+                callBtn.classList.add('called');
                 try {
                     const res = await fetch(`/leads/${lead.id}/call`, { method: 'POST' });
                     const data = await res.json();

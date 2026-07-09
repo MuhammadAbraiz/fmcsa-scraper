@@ -73,12 +73,22 @@ def reset_agent_password(user_id):
     return redirect(url_for('admin.agent_detail', user_id=user_id))
 
 
+PAGE_SIZE = 500
+
+
 @bp.route('/calls')
 @admin_required
 def calls():
     agent_id = request.args.get('agent_id', type=int)
-    call_logs = models.list_call_logs(agent_id=agent_id)
-    return render_template('admin_calls.html', calls=call_logs, agents=models.list_agents(), selected_agent_id=agent_id)
+    page = max(1, request.args.get('page', 1, type=int))
+    offset = (page - 1) * PAGE_SIZE
+
+    call_logs = models.list_call_logs(agent_id=agent_id, limit=PAGE_SIZE, offset=offset)
+    total = models.count_call_logs(agent_id=agent_id)
+    return render_template(
+        'admin_calls.html', calls=call_logs, agents=models.list_agents(), selected_agent_id=agent_id,
+        page=page, page_size=PAGE_SIZE, total=total,
+    )
 
 
 # --- legacy routes for CSVs generated before the DB-backed lead pool existed ---

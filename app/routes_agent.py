@@ -58,6 +58,9 @@ def leads_page():
     return render_template('leads.html', equipment_filters=models.EQUIPMENT_FILTERS, outcomes=models.CALL_OUTCOMES)
 
 
+PAGE_SIZE = 500
+
+
 @bp.route('/api/leads')
 @api_login_required
 def api_leads_list():
@@ -65,7 +68,12 @@ def api_leads_list():
     equipment = request.args.get('equipment') or None
     mc_min = request.args.get('mc_min', type=int)
     mc_max = request.args.get('mc_max', type=int)
-    return jsonify(models.list_leads(q=q, equipment=equipment, mc_min=mc_min, mc_max=mc_max))
+    page = max(1, request.args.get('page', 1, type=int))
+    offset = (page - 1) * PAGE_SIZE
+
+    leads = models.list_leads(q=q, equipment=equipment, mc_min=mc_min, mc_max=mc_max, limit=PAGE_SIZE, offset=offset)
+    total = models.count_leads(q=q, equipment=equipment, mc_min=mc_min, mc_max=mc_max)
+    return jsonify({'leads': leads, 'total': total, 'page': page, 'page_size': PAGE_SIZE})
 
 
 @bp.route('/api/leads/<int:lead_id>')
@@ -81,15 +89,33 @@ def api_lead_detail(lead_id):
 @bp.route('/queue')
 @login_required
 def call_queue():
-    return render_template('queue.html', outcomes=models.CALL_OUTCOMES)
+    job = None
+    job_id = request.args.get('job_id')
+    if job_id:
+        job = models.get_search_job(job_id)
+    return render_template('queue.html', outcomes=models.CALL_OUTCOMES,
+                            equipment_filters=models.EQUIPMENT_FILTERS, job=job)
 
 
 @bp.route('/queue/leads')
 @api_login_required
 def queue_leads():
+    q = request.args.get('q') or None
+    equipment = request.args.get('equipment') or None
+    mc_min = request.args.get('mc_min', type=int)
+    mc_max = request.args.get('mc_max', type=int)
+    job_row_id = None
+    job_id = request.args.get('job_id')
+    if job_id:
+        job = models.get_search_job(job_id)
+        if job is None:
+            return jsonify({'error': 'Job not found'}), 404
+        job_row_id = job['id']
+
+    filters = dict(q=q, equipment=equipment, mc_min=mc_min, mc_max=mc_max, job_row_id=job_row_id)
     return jsonify({
-        'leads': models.list_uncalled_leads(),
-        'total_remaining': models.count_uncalled_leads(),
+        'leads': models.list_uncalled_leads(**filters),
+        'total_remaining': models.count_uncalled_leads(**filters),
     })
 
 

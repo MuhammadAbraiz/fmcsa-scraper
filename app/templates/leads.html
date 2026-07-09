@@ -42,6 +42,14 @@
         </thead>
         <tbody id="leads-tbody"></tbody>
     </table>
+
+    <div class="pagination" id="pagination" style="display:none;">
+        <div class="pagination-info" id="pagination-info"></div>
+        <div class="pagination-controls">
+            <button type="button" id="prev-page-btn" class="btn-secondary btn-small">Previous</button>
+            <button type="button" id="next-page-btn" class="btn-secondary btn-small">Next</button>
+        </div>
+    </div>
 </div>
 
 {% include '_lead_drawer.html' %}
@@ -50,9 +58,13 @@
     const leadsTbody = document.getElementById('leads-tbody');
     const leadsTable = document.getElementById('leads-table');
     const leadsEmpty = document.getElementById('leads-empty');
+    const paginationEl = document.getElementById('pagination');
+    const paginationInfo = document.getElementById('pagination-info');
+    let currentPage = 1;
 
     function leadRowHtml(lead) {
         const phone = lead.phone || '';
+        const calledClass = lead.been_called ? ' called' : '';
         return `
             <tr>
                 <td>${lead.legal_name || ''}</td>
@@ -61,14 +73,20 @@
                 <td>${lead.likely_equipment || ''}</td>
                 <td>
                     <div class="row-actions">
-                        ${phone ? `<a href="tel:${phone}" class="icon-btn icon-call" title="Call" onclick="fetch('/leads/${lead.id}/call',{method:'POST'}).catch(()=>{})">${window.leadIconSvg('call')}</a>` : ''}
+                        ${phone ? `<a href="tel:${phone}" class="icon-btn icon-call${calledClass}" title="Call" onclick="markCalled(this, ${lead.id})">${window.leadIconSvg('call')}</a>` : ''}
                         <button type="button" class="icon-btn icon-details" title="Details" onclick="openLeadDrawer(${lead.id})">${window.leadIconSvg('details')}</button>
                     </div>
                 </td>
             </tr>`;
     }
 
-    async function loadLeads() {
+    window.markCalled = function(el, leadId) {
+        el.classList.add('called');
+        fetch(`/leads/${leadId}/call`, { method: 'POST' }).catch(() => {});
+    };
+
+    async function loadLeads(page) {
+        currentPage = page || 1;
         const params = new URLSearchParams();
         const q = document.getElementById('f-q').value.trim();
         const equipment = document.getElementById('f-equipment').value;
@@ -78,35 +96,50 @@
         if (equipment) params.set('equipment', equipment);
         if (mcMin) params.set('mc_min', mcMin);
         if (mcMax) params.set('mc_max', mcMax);
+        params.set('page', currentPage);
 
         try {
             const res = await fetch(`/api/leads?${params.toString()}`);
-            const leads = await res.json();
-            if (!leads.length) {
+            const data = await res.json();
+            if (!data.leads.length) {
                 leadsTable.style.display = 'none';
                 leadsEmpty.style.display = 'block';
+                paginationEl.style.display = 'none';
                 return;
             }
-            leadsTbody.innerHTML = leads.map(leadRowHtml).join('');
+            leadsTbody.innerHTML = data.leads.map(leadRowHtml).join('');
             leadsTable.style.display = 'table';
             leadsEmpty.style.display = 'none';
+            renderPagination(data);
         } catch (err) {
             leadsEmpty.textContent = 'Could not load leads.';
             leadsEmpty.style.display = 'block';
             leadsTable.style.display = 'none';
+            paginationEl.style.display = 'none';
         }
     }
 
-    document.getElementById('apply-filters-btn').addEventListener('click', loadLeads);
+    function renderPagination(data) {
+        const start = (data.page - 1) * data.page_size + 1;
+        const end = Math.min(data.page * data.page_size, data.total);
+        paginationInfo.textContent = `Showing ${start}–${end} of ${data.total}`;
+        document.getElementById('prev-page-btn').disabled = data.page <= 1;
+        document.getElementById('next-page-btn').disabled = end >= data.total;
+        paginationEl.style.display = 'flex';
+    }
+
+    document.getElementById('apply-filters-btn').addEventListener('click', () => loadLeads(1));
     document.getElementById('clear-filters-btn').addEventListener('click', () => {
         document.getElementById('f-q').value = '';
         document.getElementById('f-equipment').value = '';
         document.getElementById('f-mc-min').value = '';
         document.getElementById('f-mc-max').value = '';
-        loadLeads();
+        loadLeads(1);
     });
-    document.getElementById('f-q').addEventListener('keydown', (e) => { if (e.key === 'Enter') loadLeads(); });
+    document.getElementById('f-q').addEventListener('keydown', (e) => { if (e.key === 'Enter') loadLeads(1); });
+    document.getElementById('prev-page-btn').addEventListener('click', () => loadLeads(currentPage - 1));
+    document.getElementById('next-page-btn').addEventListener('click', () => loadLeads(currentPage + 1));
 
-    loadLeads();
+    loadLeads(1);
 </script>
 {% endblock %}

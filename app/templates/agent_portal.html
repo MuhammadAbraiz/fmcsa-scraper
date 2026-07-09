@@ -1,12 +1,6 @@
 {% extends 'base.html' %}
 {% block title %}Search Portal{% endblock %}
 {% block content %}
-<div class="card" style="text-align:center;">
-    <h2 style="text-align:center;">Ready to make calls?</h2>
-    <p>Work through every uncalled lead in the shared pool one at a time — call, log the outcome, and it auto-advances to the next.</p>
-    <a href="{{ url_for('agent.call_queue') }}" class="btn btn-success btn-large">Open Call Queue</a>
-</div>
-
 <div class="card">
     <h1>Carrier Lead Search</h1>
     <p>Enter an MC number range to scan. Matching carriers (1 power unit, authorized for property) appear below in real time, with email pulled from FMCSA and a best-effort "Likely Equipment" guess from cargo data — not a verified fact, just a hint for prioritizing calls.</p>
@@ -32,6 +26,7 @@
     <div id="results-section" class="section" style="display:none;">
         <div class="section-header">
             <h2>Results From This Search</h2>
+            <a id="open-queue-link" href="#" class="btn-secondary btn-small" style="display:none;">Open in Call Queue</a>
         </div>
         <div id="results-empty" class="table-empty" style="display:none;">No matches yet — still scanning...</div>
         <div class="table-scroll">
@@ -59,7 +54,10 @@
                 <td>{{ job.status }}</td>
                 <td>{{ job.processed }} / {{ job.total }}</td>
                 <td>{{ job.found }}</td>
-                <td><button type="button" class="btn-secondary btn-small" onclick="viewPastJob('{{ job.job_uuid }}')">View Results</button></td>
+                <td>
+                    <button type="button" class="btn-secondary btn-small" onclick="viewPastJob('{{ job.job_uuid }}')">View Results</button>
+                    <a href="{{ url_for('agent.call_queue') }}?job_id={{ job.job_uuid }}" class="btn-secondary btn-small">Call Queue</a>
+                </td>
             </tr>
             {% endfor %}
         </tbody>
@@ -81,13 +79,20 @@
     const resultsTbody = document.getElementById('results-tbody');
     const resultsTable = document.getElementById('results-table');
     const resultsEmpty = document.getElementById('results-empty');
+    const openQueueLink = document.getElementById('open-queue-link');
     const ACTIVE_JOB_KEY = 'fmcsa_active_job_id';
     const LAST_JOB_KEY = 'fmcsa_last_job_id';
     let pollTimer = null;
     let lastSeenLeadId = 0;
 
+    window.markCalled = function(el, leadId) {
+        el.classList.add('called');
+        fetch(`/leads/${leadId}/call`, { method: 'POST' }).catch(() => {});
+    };
+
     function leadRowHtml(lead) {
         const phone = lead.phone || '';
+        const calledClass = lead.been_called ? ' called' : '';
         return `
             <tr>
                 <td>${lead.legal_name || ''}</td>
@@ -96,11 +101,17 @@
                 <td>${lead.likely_equipment || ''}</td>
                 <td>
                     <div class="row-actions">
-                        ${phone ? `<a href="tel:${phone}" class="icon-btn icon-call" title="Call" onclick="fetch('/leads/${lead.id}/call',{method:'POST'}).catch(()=>{})">${window.leadIconSvg('call')}</a>` : ''}
+                        ${phone ? `<a href="tel:${phone}" class="icon-btn icon-call${calledClass}" title="Call" onclick="markCalled(this, ${lead.id})">${window.leadIconSvg('call')}</a>` : ''}
                         <button type="button" class="icon-btn icon-details" title="Details" onclick="openLeadDrawer(${lead.id})">${window.leadIconSvg('details')}</button>
                     </div>
                 </td>
             </tr>`;
+    }
+
+    function setOpenQueueLink(jobId) {
+        if (!jobId) { openQueueLink.style.display = 'none'; return; }
+        openQueueLink.href = `/queue?job_id=${jobId}`;
+        openQueueLink.style.display = 'inline-block';
     }
 
     form.addEventListener('submit', async (e) => {
@@ -127,6 +138,7 @@
             if (!response.ok) throw new Error(data.error || 'Failed to start job');
             localStorage.setItem(ACTIVE_JOB_KEY, data.job_id);
             localStorage.setItem(LAST_JOB_KEY, data.job_id);
+            setOpenQueueLink(data.job_id);
             pollStatus(data.job_id);
         } catch (err) {
             progressSection.style.display = 'none';
@@ -184,6 +196,7 @@
                     progressSection.style.display = 'block';
                     submitBtn.disabled = true;
                     submitBtn.textContent = 'Running...';
+                    setOpenQueueLink(jobId);
                     updateProgress(data);
                     await fetchNewLeads(jobId);
                     if (data.status === 'done' || data.status === 'error') {
@@ -215,6 +228,7 @@
             const data = await res.json();
             resultsSection.style.display = 'block';
             progressSection.style.display = 'block';
+            setOpenQueueLink(jobId);
             updateProgress(data);
             await fetchNewLeads(jobId);
             if (data.status === 'running') {

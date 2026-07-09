@@ -189,37 +189,74 @@ def upsert_lead(fields, job_row_id, agent_id):
 EQUIPMENT_FILTERS = ['Dry Van', 'Reefer', 'Flatbed', 'Box Truck', 'Unknown']
 
 
-def list_leads(q=None, equipment=None, mc_min=None, mc_max=None, limit=500):
+def _lead_filter_clauses(q=None, equipment=None, mc_min=None, mc_max=None):
+    clauses = []
+    params = []
+    if q:
+        like = f'%{q}%'
+        clauses.append('(legal_name LIKE ? OR usdot LIKE ? OR mc_number LIKE ?)')
+        params += [like, like, like]
+    if equipment:
+        clauses.append('likely_equipment LIKE ?')
+        params.append(f'{equipment}%')
+    if mc_min is not None:
+        clauses.append('mc_number >= ?')
+        params.append(mc_min)
+    if mc_max is not None:
+        clauses.append('mc_number <= ?')
+        params.append(mc_max)
+    return clauses, params
+
+
+def list_leads(q=None, equipment=None, mc_min=None, mc_max=None, limit=500, offset=0):
     conn = get_connection()
     try:
-        clauses = []
-        params = []
-        if q:
-            like = f'%{q}%'
-            clauses.append('(legal_name LIKE ? OR usdot LIKE ? OR mc_number LIKE ?)')
-            params += [like, like, like]
-        if equipment:
-            clauses.append('likely_equipment LIKE ?')
-            params.append(f'{equipment}%')
-        if mc_min is not None:
-            clauses.append('mc_number >= ?')
-            params.append(mc_min)
-        if mc_max is not None:
-            clauses.append('mc_number <= ?')
-            params.append(mc_max)
-
+        clauses, params = _lead_filter_clauses(q, equipment, mc_min, mc_max)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ''
-        params.append(limit)
         rows = conn.execute(
-            f'SELECT * FROM leads {where} ORDER BY created_at DESC LIMIT ?',
-            params,
+            f'SELECT l.*, EXISTS(SELECT 1 FROM call_logs cl WHERE cl.lead_id = l.id) AS been_called '
+            f'FROM leads l {where} ORDER BY l.created_at DESC LIMIT ? OFFSET ?',
+            params + [limit, offset],
         ).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
 
 
-def list_uncalled_leads(limit=300):
+def count_leads(q=None, equipment=None, mc_min=None, mc_max=None):
+    conn = get_connection()
+    try:
+        clauses, params = _lead_filter_clauses(q, equipment, mc_min, mc_max)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ''
+        row = conn.execute(f'SELECT COUNT(*) FROM leads {where}', params).fetchone()
+        return row[0]
+    finally:
+        conn.close()
+
+
+def _uncalled_filter_clauses(q=None, equipment=None, mc_min=None, mc_max=None, job_row_id=None):
+    clauses = ["cl.id IS NULL", "l.phone IS NOT NULL", "l.phone != ''"]
+    params = []
+    if job_row_id is not None:
+        clauses.append('l.first_found_job_id = ?')
+        params.append(job_row_id)
+    if q:
+        like = f'%{q}%'
+        clauses.append('(l.legal_name LIKE ? OR l.usdot LIKE ? OR l.mc_number LIKE ?)')
+        params += [like, like, like]
+    if equipment:
+        clauses.append('l.likely_equipment LIKE ?')
+        params.append(f'{equipment}%')
+    if mc_min is not None:
+        clauses.append('l.mc_number >= ?')
+        params.append(mc_min)
+    if mc_max is not None:
+        clauses.append('l.mc_number <= ?')
+        params.append(mc_max)
+    return clauses, params
+
+
+def list_uncalled_leads(limit=300, q=None, equipment=None, mc_min=None, mc_max=None, job_row_id=None):
     """Leads with no call_logs row at all — the default calling queue.
 
     Fetched in batches (not all at once — the pool can be tens of thousands
@@ -228,25 +265,28 @@ def list_uncalled_leads(limit=300):
     """
     conn = get_connection()
     try:
+        clauses, params = _uncalled_filter_clauses(q, equipment, mc_min, mc_max, job_row_id)
         rows = conn.execute(
             'SELECT l.* FROM leads l '
             'LEFT JOIN call_logs cl ON cl.lead_id = l.id '
-            'WHERE cl.id IS NULL AND l.phone IS NOT NULL AND l.phone != \'\' '
+            f"WHERE {' AND '.join(clauses)} "
             'ORDER BY l.created_at ASC LIMIT ?',
-            (limit,),
+            params + [limit],
         ).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
 
 
-def count_uncalled_leads():
+def count_uncalled_leads(q=None, equipment=None, mc_min=None, mc_max=None, job_row_id=None):
     conn = get_connection()
     try:
+        clauses, params = _uncalled_filter_clauses(q, equipment, mc_min, mc_max, job_row_id)
         row = conn.execute(
             'SELECT COUNT(*) FROM leads l '
             'LEFT JOIN call_logs cl ON cl.lead_id = l.id '
-            'WHERE cl.id IS NULL AND l.phone IS NOT NULL AND l.phone != \'\''
+            f"WHERE {' AND '.join(clauses)}",
+            params,
         ).fetchone()
         return row[0]
     finally:
@@ -256,7 +296,11 @@ def count_uncalled_leads():
 def get_lead(lead_id):
     conn = get_connection()
     try:
-        row = conn.execute('SELECT * FROM leads WHERE id = ?', (lead_id,)).fetchone()
+        row = conn.execute(
+            'SELECT l.*, EXISTS(SELECT 1 FROM call_logs cl WHERE cl.lead_id = l.id) AS been_called '
+            'FROM leads l WHERE l.id = ?',
+            (lead_id,),
+        ).fetchone()
         return dict(row) if row else None
     finally:
         conn.close()
@@ -325,7 +369,7 @@ def update_call_outcome(call_id, outcome, note, requesting_user):
         conn.close()
 
 
-def list_call_logs(agent_id=None, limit=200):
+def list_call_logs(agent_id=None, limit=200, offset=0):
     conn = get_connection()
     try:
         base = (
@@ -336,12 +380,26 @@ def list_call_logs(agent_id=None, limit=200):
         )
         if agent_id is not None:
             rows = conn.execute(
-                base + 'WHERE cl.agent_id = ? ORDER BY cl.called_at DESC LIMIT ?',
-                (agent_id, limit),
+                base + 'WHERE cl.agent_id = ? ORDER BY cl.called_at DESC LIMIT ? OFFSET ?',
+                (agent_id, limit, offset),
             ).fetchall()
         else:
-            rows = conn.execute(base + 'ORDER BY cl.called_at DESC LIMIT ?', (limit,)).fetchall()
+            rows = conn.execute(
+                base + 'ORDER BY cl.called_at DESC LIMIT ? OFFSET ?', (limit, offset)
+            ).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def count_call_logs(agent_id=None):
+    conn = get_connection()
+    try:
+        if agent_id is not None:
+            row = conn.execute('SELECT COUNT(*) FROM call_logs WHERE agent_id = ?', (agent_id,)).fetchone()
+        else:
+            row = conn.execute('SELECT COUNT(*) FROM call_logs').fetchone()
+        return row[0]
     finally:
         conn.close()
 
