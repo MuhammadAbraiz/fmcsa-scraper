@@ -56,6 +56,8 @@
     let queue = [];
     let index = 0;
     let currentCallId = null;
+    let totalRemaining = 0;
+    let refilling = false;
 
     const loadingEl = document.getElementById('queue-loading');
     const bodyEl = document.getElementById('queue-body');
@@ -64,18 +66,55 @@
     const outcomePanel = document.getElementById('q-outcome-panel');
     const callBtn = document.getElementById('q-call-btn');
 
+    async function fetchBatch() {
+        const res = await fetch('/queue/leads');
+        return await res.json();
+    }
+
     async function loadQueue() {
+        loadingEl.textContent = 'Loading queue...';
         loadingEl.style.display = 'block';
         bodyEl.style.display = 'none';
         emptyEl.style.display = 'none';
         try {
-            const res = await fetch('/queue/leads');
-            queue = await res.json();
+            const data = await fetchBatch();
+            queue = data.leads;
+            totalRemaining = data.total_remaining;
             index = 0;
             loadingEl.style.display = 'none';
             render();
         } catch (err) {
             loadingEl.textContent = 'Could not load queue.';
+        }
+    }
+
+    // Called when the current batch runs out — re-fetches automatically (the
+    // pool can be tens of thousands of leads, so we work through it in
+    // batches rather than one huge payload) instead of stopping short.
+    async function refillQueue() {
+        if (refilling) return;
+        refilling = true;
+        bodyEl.style.display = 'none';
+        emptyEl.style.display = 'none';
+        loadingEl.textContent = 'Checking for more leads...';
+        loadingEl.style.display = 'block';
+        try {
+            const data = await fetchBatch();
+            queue = data.leads;
+            totalRemaining = data.total_remaining;
+            index = 0;
+            loadingEl.style.display = 'none';
+            refilling = false;
+            if (queue.length === 0) {
+                emptyEl.style.display = 'block';
+                countEl.textContent = '';
+            } else {
+                render();
+            }
+        } catch (err) {
+            loadingEl.style.display = 'none';
+            emptyEl.style.display = 'block';
+            refilling = false;
         }
     }
 
@@ -86,14 +125,12 @@
         document.querySelectorAll('.outcome-btn').forEach(b => b.classList.remove('selected'));
 
         if (index >= queue.length) {
-            bodyEl.style.display = 'none';
-            emptyEl.style.display = 'block';
-            countEl.textContent = '';
+            refillQueue();
             return;
         }
         bodyEl.style.display = 'block';
         emptyEl.style.display = 'none';
-        countEl.textContent = `${index + 1} of ${queue.length}`;
+        countEl.textContent = `${totalRemaining} left to call`;
 
         const lead = queue[index];
         document.getElementById('q-name').textContent = lead.legal_name || '(no name)';
@@ -139,6 +176,7 @@
         body.append('outcome', outcome);
         body.append('note', note);
         await fetch(`/calls/${currentCallId}/outcome`, { method: 'POST', body });
+        totalRemaining = Math.max(0, totalRemaining - 1);
         setTimeout(() => { index += 1; render(); }, 350);
     });
 

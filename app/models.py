@@ -219,8 +219,13 @@ def list_leads(q=None, equipment=None, mc_min=None, mc_max=None, limit=500):
         conn.close()
 
 
-def list_uncalled_leads(limit=200):
-    """Leads with no call_logs row at all — the default calling queue."""
+def list_uncalled_leads(limit=300):
+    """Leads with no call_logs row at all — the default calling queue.
+
+    Fetched in batches (not all at once — the pool can be tens of thousands
+    of rows) and re-queried as each batch is worked through, so the agent
+    never has to think about a page size.
+    """
     conn = get_connection()
     try:
         rows = conn.execute(
@@ -231,6 +236,19 @@ def list_uncalled_leads(limit=200):
             (limit,),
         ).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def count_uncalled_leads():
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            'SELECT COUNT(*) FROM leads l '
+            'LEFT JOIN call_logs cl ON cl.lead_id = l.id '
+            'WHERE cl.id IS NULL AND l.phone IS NOT NULL AND l.phone != \'\''
+        ).fetchone()
+        return row[0]
     finally:
         conn.close()
 

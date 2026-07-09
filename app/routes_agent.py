@@ -87,7 +87,10 @@ def call_queue():
 @bp.route('/queue/leads')
 @api_login_required
 def queue_leads():
-    return jsonify(models.list_uncalled_leads())
+    return jsonify({
+        'leads': models.list_uncalled_leads(),
+        'total_remaining': models.count_uncalled_leads(),
+    })
 
 
 @bp.route('/leads/<int:lead_id>')
