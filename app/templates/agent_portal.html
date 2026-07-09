@@ -1,6 +1,12 @@
 {% extends 'base.html' %}
 {% block title %}Search Portal{% endblock %}
 {% block content %}
+<div class="card" style="text-align:center;">
+    <h2 style="text-align:center;">Ready to make calls?</h2>
+    <p>Work through every uncalled lead in the shared pool one at a time — call, log the outcome, and it auto-advances to the next.</p>
+    <a href="{{ url_for('agent.call_queue') }}" class="btn btn-success btn-large">Open Call Queue</a>
+</div>
+
 <div class="card">
     <h1>Carrier Lead Search</h1>
     <p>Enter an MC number range to scan. Matching carriers (1 power unit, authorized for property) appear below in real time, with email pulled from FMCSA and a best-effort "Likely Equipment" guess from cargo data — not a verified fact, just a hint for prioritizing calls.</p>

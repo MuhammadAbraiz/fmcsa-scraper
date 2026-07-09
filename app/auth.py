@@ -1,9 +1,12 @@
+import csv
+import re
 from functools import wraps
 
 import click
 from flask import Blueprint, g, jsonify, redirect, render_template, request, session, url_for
 
 from . import models
+from . import scraper
 
 bp = Blueprint('auth', __name__)
 
@@ -107,3 +110,49 @@ def register_cli(app):
             return
         models.create_user(username, password, role='admin', full_name='Admin')
         click.echo(f'Admin user "{username}" created.')
+
+    @app.cli.command('import-csv')
+    @click.argument('path')
+    def import_csv(path):
+        """Backfill the leads table from a legacy output_*.csv file: flask --app app import-csv <path>"""
+        header_map = {
+            'Legal Name': 'legal_name',
+            'USDOT Number': 'usdot',
+            'MC/MX/FF Numbers': 'mc_mx_ff_numbers',
+            'Entity Type': 'entity_type',
+            'Address': 'address',
+            'Phone': 'phone',
+            'Email': 'email',
+            'Power Units': 'power_units',
+            'Drivers': 'drivers',
+            'MCS-150 Form Date': 'mcs_150_form_date',
+            'MCS-150 Mileage': 'mcs_150_mileage',
+            'MCS-150 Mileage Year': 'mcs_150_mileage_year',
+            'Out of Service Date': 'out_of_service_date',
+            'Operating Status': 'operating_status',
+            'Operation Classification': 'operation_classification',
+            'Carrier Operation': 'carrier_operation',
+            'Cargo Carried': 'cargo_carried',
+            'Likely Equipment (Inferred)': 'likely_equipment',
+        }
+        inserted = 0
+        skipped_no_usdot = 0
+        with open(path, newline='', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                fields = {}
+                for csv_col, db_field in header_map.items():
+                    if csv_col in row:
+                        fields[db_field] = row[csv_col]
+                if not fields.get('usdot'):
+                    skipped_no_usdot += 1
+                    continue
+                if 'likely_equipment' not in fields or not fields['likely_equipment']:
+                    cargo_list = [c.strip() for c in (fields.get('cargo_carried') or '').split(',') if c.strip()]
+                    fields['likely_equipment'] = scraper.infer_equipment(cargo_list)
+                mc_match = re.search(r'(\d+)', fields.get('mc_mx_ff_numbers') or '')
+                if mc_match:
+                    fields['mc_number'] = int(mc_match.group(1))
+                models.upsert_lead(fields, job_row_id=None, agent_id=None)
+                inserted += 1
+        click.echo(f'Imported/updated {inserted} leads from {path} ({skipped_no_usdot} rows skipped: no USDOT).')

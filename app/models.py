@@ -203,6 +203,22 @@ def list_leads(q=None, limit=500):
         conn.close()
 
 
+def list_uncalled_leads(limit=200):
+    """Leads with no call_logs row at all — the default calling queue."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            'SELECT l.* FROM leads l '
+            'LEFT JOIN call_logs cl ON cl.lead_id = l.id '
+            'WHERE cl.id IS NULL AND l.phone IS NOT NULL AND l.phone != \'\' '
+            'ORDER BY l.created_at ASC LIMIT ?',
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
 def get_lead(lead_id):
     conn = get_connection()
     try:

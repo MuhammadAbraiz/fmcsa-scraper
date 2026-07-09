@@ -1,0 +1,163 @@
+{% extends 'base.html' %}
+{% block title %}Call Queue{% endblock %}
+{% block content %}
+<div class="card">
+    <div class="queue-progress">
+        <h1 style="margin:0;">Call Queue</h1>
+        <span class="queue-count" id="queue-count"></span>
+    </div>
+
+    <div id="queue-loading" class="table-empty">Loading queue...</div>
+
+    <div id="queue-body" style="display:none;">
+        <div class="queue-card" id="queue-card">
+            <div class="lead-name" id="q-name"></div>
+            <div class="lead-sub" id="q-sub"></div>
+            <div class="equipment-tag" id="q-equipment"></div>
+            <div class="lead-phone-big" id="q-phone" style="margin-top:0.8em;"></div>
+
+            <div class="queue-actions">
+                <a href="#" id="q-call-btn" class="btn btn-success btn-large">Call</a>
+                <button type="button" id="q-skip-btn" class="btn-secondary">Skip</button>
+            </div>
+
+            <div id="q-outcome-panel" class="outcome-panel" style="text-align:left;">
+                <div class="status-message">Call logged. Pick an outcome (auto-advances):</div>
+                <div class="outcome-buttons" id="q-outcome-buttons">
+                    {% for outcome in outcomes %}
+                    <button type="button" class="outcome-btn" data-outcome="{{ outcome }}"><span class="kbd-hint">{{ loop.index }}</span>{{ outcome }}</button>
+                    {% endfor %}
+                </div>
+                <textarea id="q-note" rows="2" style="width:100%;" placeholder="Optional note..."></textarea>
+            </div>
+
+            <div class="queue-meta">
+                <div><div class="meta-label">USDOT</div><div id="q-usdot"></div></div>
+                <div><div class="meta-label">MC Number</div><div id="q-mc"></div></div>
+                <div><div class="meta-label">Email</div><div id="q-email"></div></div>
+                <div><div class="meta-label">Cargo Carried</div><div id="q-cargo"></div></div>
+            </div>
+        </div>
+
+        <div class="kbd-legend">
+            <kbd>1</kbd>–<kbd>6</kbd> log outcome &nbsp; <kbd>C</kbd> call &nbsp; <kbd>S</kbd> skip
+        </div>
+    </div>
+
+    <div id="queue-empty" class="queue-empty" style="display:none;">
+        <h2 style="text-align:center;">🎉 Queue clear!</h2>
+        <p>Every lead in the shared pool has been called at least once.</p>
+        <button type="button" id="q-reload-btn" class="btn-secondary">Check for new leads</button>
+        <a href="{{ url_for('agent.portal') }}" class="btn" style="margin-left:0.5em;">Back to Search</a>
+    </div>
+</div>
+
+<script>
+    let queue = [];
+    let index = 0;
+    let currentCallId = null;
+
+    const loadingEl = document.getElementById('queue-loading');
+    const bodyEl = document.getElementById('queue-body');
+    const emptyEl = document.getElementById('queue-empty');
+    const countEl = document.getElementById('queue-count');
+    const outcomePanel = document.getElementById('q-outcome-panel');
+    const callBtn = document.getElementById('q-call-btn');
+
+    async function loadQueue() {
+        loadingEl.style.display = 'block';
+        bodyEl.style.display = 'none';
+        emptyEl.style.display = 'none';
+        try {
+            const res = await fetch('/queue/leads');
+            queue = await res.json();
+            index = 0;
+            loadingEl.style.display = 'none';
+            render();
+        } catch (err) {
+            loadingEl.textContent = 'Could not load queue.';
+        }
+    }
+
+    function render() {
+        currentCallId = null;
+        outcomePanel.style.display = 'none';
+        document.getElementById('q-note').value = '';
+        document.querySelectorAll('.outcome-btn').forEach(b => b.classList.remove('selected'));
+
+        if (index >= queue.length) {
+            bodyEl.style.display = 'none';
+            emptyEl.style.display = 'block';
+            countEl.textContent = '';
+            return;
+        }
+        bodyEl.style.display = 'block';
+        emptyEl.style.display = 'none';
+        countEl.textContent = `${index + 1} of ${queue.length}`;
+
+        const lead = queue[index];
+        document.getElementById('q-name').textContent = lead.legal_name || '(no name)';
+        document.getElementById('q-sub').textContent = [lead.address, lead.entity_type].filter(Boolean).join(' · ');
+        document.getElementById('q-equipment').textContent = lead.likely_equipment || '';
+        document.getElementById('q-phone').textContent = lead.phone || 'No phone on file';
+        document.getElementById('q-usdot').textContent = lead.usdot || '—';
+        document.getElementById('q-mc').textContent = lead.mc_number || '—';
+        document.getElementById('q-email').textContent = lead.email || '—';
+        document.getElementById('q-cargo').textContent = lead.cargo_carried || '—';
+
+        callBtn.href = lead.phone ? `tel:${lead.phone}` : '#';
+        callBtn.style.display = lead.phone ? 'inline-block' : 'none';
+    }
+
+    async function logCall() {
+        const lead = queue[index];
+        if (!lead || currentCallId) return;
+        try {
+            const res = await fetch(`/leads/${lead.id}/call`, { method: 'POST' });
+            const data = await res.json();
+            currentCallId = data.call_id;
+            outcomePanel.style.display = 'block';
+        } catch (err) {}
+    }
+
+    callBtn.addEventListener('click', () => { logCall(); });
+
+    document.getElementById('q-skip-btn').addEventListener('click', () => {
+        index += 1;
+        render();
+    });
+
+    document.getElementById('q-reload-btn').addEventListener('click', loadQueue);
+
+    document.getElementById('q-outcome-buttons').addEventListener('click', async (e) => {
+        if (!e.target.classList.contains('outcome-btn')) return;
+        if (!currentCallId) return;
+        const outcome = e.target.dataset.outcome;
+        e.target.classList.add('selected');
+        const note = document.getElementById('q-note').value;
+        const body = new FormData();
+        body.append('outcome', outcome);
+        body.append('note', note);
+        await fetch(`/calls/${currentCallId}/outcome`, { method: 'POST', body });
+        setTimeout(() => { index += 1; render(); }, 350);
+    });
+
+    document.addEventListener('keydown', (e) => {
+        if (document.activeElement && document.activeElement.tagName === 'TEXTAREA') return;
+        if (index >= queue.length) return;
+        const key = e.key.toLowerCase();
+        if (key === 'c') {
+            e.preventDefault();
+            logCall();
+        } else if (key === 's') {
+            e.preventDefault();
+            document.getElementById('q-skip-btn').click();
+        } else if (/^[1-6]$/.test(key) && currentCallId) {
+            const btn = document.querySelectorAll('.outcome-btn')[parseInt(key, 10) - 1];
+            if (btn) btn.click();
+        }
+    });
+
+    loadQueue();
+</script>
+{% endblock %}

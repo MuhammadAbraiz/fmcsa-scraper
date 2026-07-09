@@ -58,6 +58,18 @@ def leads_list():
     return jsonify(models.list_leads(q=q))
 
 
+@bp.route('/queue')
+@login_required
+def call_queue():
+    return render_template('queue.html', outcomes=models.CALL_OUTCOMES)
+
+
+@bp.route('/queue/leads')
+@api_login_required
+def queue_leads():
+    return jsonify(models.list_uncalled_leads())
+
+
 @bp.route('/leads/<int:lead_id>')
 @login_required
 def lead_detail(lead_id):

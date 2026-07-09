@@ -18,6 +18,7 @@
                 <a href="{{ url_for('admin.list_files') }}" data-path="/admin/files">Legacy CSVs</a>
             {% endif %}
             <a href="{{ url_for('agent.portal') }}" data-path="/portal">Search Portal</a>
+            <a href="{{ url_for('agent.call_queue') }}" data-path="/queue">Call Queue</a>
         </div>
         <div class="nav-right">
             <span class="nav-user">{{ g.user.username }} · {{ g.user.role }}</span>
