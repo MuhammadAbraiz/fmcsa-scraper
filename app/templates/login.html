@@ -6,8 +6,9 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-    <div class="card" style="max-width: 380px; margin-top: 4em;">
+    <div class="card card-narrow" style="margin-top: 4em;">
         <h1>Log In</h1>
+        <p style="text-align:center; margin-top:-0.5em;">FMCSA Lead Manager</p>
         {% if error %}
         <div class="alert alert-error">{{ error }}</div>
         {% endif %}

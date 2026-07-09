@@ -5,7 +5,7 @@
     <h1>{{ agent.username }} <span class="badge {{ 'badge-active' if agent.is_active else 'badge-inactive' }}">{{ 'Active' if agent.is_active else 'Inactive' }}</span></h1>
     <p>{{ agent.full_name or '' }} — created {{ agent.created_at }}</p>
 
-    <form method="post" action="{{ url_for('admin.reset_agent_password', user_id=agent.id) }}" style="max-width:320px;">
+    <form method="post" action="{{ url_for('admin.reset_agent_password', user_id=agent.id) }}" style="max-width:320px; margin-top:1em;">
         <label for="new_password">Reset Password (min 6 characters)</label>
         <input type="password" id="new_password" name="new_password" required minlength="6">
         <button type="submit" class="btn-small">Reset Password</button>
@@ -15,6 +15,7 @@
 <div class="card">
     <h2>Search History</h2>
     {% if jobs %}
+    <div class="table-scroll">
     <table>
         <thead><tr><th>Started</th><th>MC Range</th><th>Status</th><th>Processed / Total</th><th>Found</th></tr></thead>
         <tbody>
@@ -29,6 +30,7 @@
             {% endfor %}
         </tbody>
     </table>
+    </div>
     {% else %}
     <div class="table-empty">No searches yet.</div>
     {% endif %}
@@ -37,6 +39,7 @@
 <div class="card">
     <h2>Call Log</h2>
     {% if calls %}
+    <div class="table-scroll">
     <table>
         <thead><tr><th>When</th><th>Lead</th><th>Outcome</th><th>Note</th></tr></thead>
         <tbody>
@@ -50,6 +53,7 @@
             {% endfor %}
         </tbody>
     </table>
+    </div>
     {% else %}
     <div class="table-empty">No calls logged yet.</div>
     {% endif %}

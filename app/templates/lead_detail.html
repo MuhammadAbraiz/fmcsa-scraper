@@ -35,7 +35,7 @@
             <button type="button" class="outcome-btn" data-outcome="{{ outcome }}">{{ outcome }}</button>
             {% endfor %}
         </div>
-        <textarea id="call-note" rows="2" style="width:100%; padding:0.5em; border:1px solid #ccc; border-radius:4px;" placeholder="Optional note..."></textarea>
+        <textarea id="call-note" rows="2" style="width:100%;" placeholder="Optional note..."></textarea>
         <button type="button" id="save-outcome-btn" class="btn-small" style="margin-top:0.6em;">Save</button>
         <div id="outcome-saved" class="status-message" style="display:none;">Saved.</div>
     </div>
@@ -44,6 +44,7 @@
 <div class="card">
     <h2>Call History</h2>
     {% if calls %}
+    <div class="table-scroll">
     <table>
         <thead><tr><th>When</th><th>Agent</th><th>Outcome</th><th>Note</th></tr></thead>
         <tbody>
@@ -57,6 +58,7 @@
             {% endfor %}
         </tbody>
     </table>
+    </div>
     {% else %}
     <div class="table-empty">No calls logged yet for this lead.</div>
     {% endif %}

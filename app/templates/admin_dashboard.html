@@ -14,6 +14,7 @@
 <div class="card">
     <h2>Recent Searches (All Agents)</h2>
     {% if recent_jobs %}
+    <div class="table-scroll">
     <table>
         <thead><tr><th>Started</th><th>Agent</th><th>MC Range</th><th>Status</th><th>Processed / Total</th><th>Found</th></tr></thead>
         <tbody>
@@ -29,6 +30,7 @@
             {% endfor %}
         </tbody>
     </table>
+    </div>
     {% else %}
     <div class="table-empty">No searches yet.</div>
     {% endif %}
@@ -37,6 +39,7 @@
 <div class="card">
     <h2>Recent Calls (All Agents)</h2>
     {% if recent_calls %}
+    <div class="table-scroll">
     <table>
         <thead><tr><th>When</th><th>Agent</th><th>Lead</th><th>Outcome</th><th>Note</th></tr></thead>
         <tbody>
@@ -51,6 +54,7 @@
             {% endfor %}
         </tbody>
     </table>
+    </div>
     {% else %}
     <div class="table-empty">No calls logged yet.</div>
     {% endif %}

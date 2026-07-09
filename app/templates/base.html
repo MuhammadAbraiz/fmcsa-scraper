@@ -2,27 +2,34 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}FMCSA Lead Manager{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
     {% if g.user %}
     <nav class="navbar">
-        <div>
+        <span class="nav-brand">FMCSA Lead Manager</span>
+        <div class="nav-links">
             {% if g.user.role == 'admin' %}
-                <a href="{{ url_for('admin.dashboard') }}">Dashboard</a>
-                <a href="{{ url_for('admin.agents') }}">Agents</a>
-                <a href="{{ url_for('admin.calls') }}">Call Log</a>
-                <a href="{{ url_for('admin.list_files') }}">Legacy CSVs</a>
+                <a href="{{ url_for('admin.dashboard') }}" data-path="/admin">Dashboard</a>
+                <a href="{{ url_for('admin.agents') }}" data-path="/admin/agents">Agents</a>
+                <a href="{{ url_for('admin.calls') }}" data-path="/admin/calls">Call Log</a>
+                <a href="{{ url_for('admin.list_files') }}" data-path="/admin/files">Legacy CSVs</a>
             {% endif %}
-            <a href="{{ url_for('agent.portal') }}">Search Portal</a>
+            <a href="{{ url_for('agent.portal') }}" data-path="/portal">Search Portal</a>
         </div>
-        <div>
-            <span class="nav-user">{{ g.user.username }} ({{ g.user.role }})</span>
+        <div class="nav-right">
+            <span class="nav-user">{{ g.user.username }} · {{ g.user.role }}</span>
             <a href="{{ url_for('auth.change_password') }}">Change Password</a>
             <a href="{{ url_for('auth.logout') }}">Logout</a>
         </div>
     </nav>
+    <script>
+        document.querySelectorAll('.navbar a[data-path]').forEach(function(a) {
+            if (window.location.pathname === a.dataset.path) a.classList.add('active');
+        });
+    </script>
     {% endif %}
     <div class="container">
         {% block content %}{% endblock %}

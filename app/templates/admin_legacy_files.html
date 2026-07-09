@@ -5,6 +5,7 @@
     <h1>Legacy CSV Files</h1>
     <p>CSVs generated before the shared lead database existed. New searches no longer create files here — use the Search Portal and Export CSV instead.</p>
     {% if files %}
+    <div class="table-scroll">
     <table>
         <thead><tr><th>File</th><th>Size</th><th>Created</th><th></th></tr></thead>
         <tbody>
@@ -18,6 +19,7 @@
             {% endfor %}
         </tbody>
     </table>
+    </div>
     {% else %}
     <div class="table-empty">No legacy CSV files on the server.</div>
     {% endif %}

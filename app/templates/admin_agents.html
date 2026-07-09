@@ -4,6 +4,7 @@
 <div class="card">
     <h1>Sales Agents</h1>
     {% if agents %}
+    <div class="table-scroll">
     <table>
         <thead><tr><th>Username</th><th>Full Name</th><th>Status</th><th>Created</th><th></th></tr></thead>
         <tbody>
@@ -15,11 +16,11 @@
                 <td>{{ a.created_at }}</td>
                 <td>
                     {% if a.is_active %}
-                    <form method="post" action="{{ url_for('admin.deactivate_agent', user_id=a.id) }}" style="display:inline;">
+                    <form method="post" action="{{ url_for('admin.deactivate_agent', user_id=a.id) }}" class="form-inline">
                         <button type="submit" class="btn-danger btn-small">Deactivate</button>
                     </form>
                     {% else %}
-                    <form method="post" action="{{ url_for('admin.activate_agent', user_id=a.id) }}" style="display:inline;">
+                    <form method="post" action="{{ url_for('admin.activate_agent', user_id=a.id) }}" class="form-inline">
                         <button type="submit" class="btn-success btn-small">Activate</button>
                     </form>
                     {% endif %}
@@ -28,6 +29,7 @@
             {% endfor %}
         </tbody>
     </table>
+    </div>
     {% else %}
     <div class="table-empty">No agents yet — create one below.</div>
     {% endif %}

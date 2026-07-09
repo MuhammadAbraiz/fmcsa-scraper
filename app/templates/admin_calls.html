@@ -4,7 +4,7 @@
 <div class="card">
     <div class="section-header">
         <h1 style="margin:0;">Call Log</h1>
-        <form method="get" style="flex-direction: row; gap: 0.5em;">
+        <form method="get">
             <select name="agent_id" onchange="this.form.submit()">
                 <option value="">All Agents</option>
                 {% for a in agents %}
@@ -14,6 +14,7 @@
         </form>
     </div>
     {% if calls %}
+    <div class="table-scroll">
     <table>
         <thead><tr><th>When</th><th>Agent</th><th>Lead</th><th>Phone</th><th>Outcome</th><th>Note</th></tr></thead>
         <tbody>
@@ -29,6 +30,7 @@
             {% endfor %}
         </tbody>
     </table>
+    </div>
     {% else %}
     <div class="table-empty">No calls logged yet.</div>
     {% endif %}
