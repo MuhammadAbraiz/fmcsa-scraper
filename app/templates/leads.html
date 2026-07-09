@@ -1,0 +1,112 @@
+{% extends 'base.html' %}
+{% block title %}All Leads{% endblock %}
+{% block content %}
+<div class="card">
+    <h1>All Leads</h1>
+    <p style="text-align:center;">The full shared lead pool. Filter by name/USDOT/MC, equipment guess, or an MC number range.</p>
+
+    <div class="filter-bar">
+        <div class="filter-field">
+            <label for="f-q">Search</label>
+            <input type="text" id="f-q" placeholder="Name, USDOT, MC...">
+        </div>
+        <div class="filter-field">
+            <label for="f-equipment">Likely Equipment</label>
+            <select id="f-equipment">
+                <option value="">All</option>
+                {% for eq in equipment_filters %}
+                <option value="{{ eq }}">{{ eq }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="filter-field">
+            <label for="f-mc-min">MC From</label>
+            <input type="number" id="f-mc-min" class="filter-mc">
+        </div>
+        <div class="filter-field">
+            <label for="f-mc-max">MC To</label>
+            <input type="number" id="f-mc-max" class="filter-mc">
+        </div>
+        <div class="filter-field">
+            <button type="button" id="apply-filters-btn">Apply</button>
+        </div>
+        <div class="filter-field">
+            <button type="button" id="clear-filters-btn" class="btn-secondary">Clear</button>
+        </div>
+    </div>
+
+    <div id="leads-empty" class="table-empty" style="display:none;">No leads match these filters.</div>
+    <table id="leads-table" style="display:none;">
+        <thead>
+            <tr><th>Legal Name</th><th>MC</th><th>Phone</th><th>Equipment</th><th></th></tr>
+        </thead>
+        <tbody id="leads-tbody"></tbody>
+    </table>
+</div>
+
+{% include '_lead_drawer.html' %}
+
+<script>
+    const leadsTbody = document.getElementById('leads-tbody');
+    const leadsTable = document.getElementById('leads-table');
+    const leadsEmpty = document.getElementById('leads-empty');
+
+    function leadRowHtml(lead) {
+        const phone = lead.phone || '';
+        return `
+            <tr>
+                <td>${lead.legal_name || ''}</td>
+                <td>${lead.mc_number || ''}</td>
+                <td>${phone}</td>
+                <td>${lead.likely_equipment || ''}</td>
+                <td>
+                    <div class="row-actions">
+                        ${phone ? `<a href="tel:${phone}" class="icon-btn icon-call" title="Call" onclick="fetch('/leads/${lead.id}/call',{method:'POST'}).catch(()=>{})">${window.leadIconSvg('call')}</a>` : ''}
+                        <button type="button" class="icon-btn icon-details" title="Details" onclick="openLeadDrawer(${lead.id})">${window.leadIconSvg('details')}</button>
+                    </div>
+                </td>
+            </tr>`;
+    }
+
+    async function loadLeads() {
+        const params = new URLSearchParams();
+        const q = document.getElementById('f-q').value.trim();
+        const equipment = document.getElementById('f-equipment').value;
+        const mcMin = document.getElementById('f-mc-min').value;
+        const mcMax = document.getElementById('f-mc-max').value;
+        if (q) params.set('q', q);
+        if (equipment) params.set('equipment', equipment);
+        if (mcMin) params.set('mc_min', mcMin);
+        if (mcMax) params.set('mc_max', mcMax);
+
+        try {
+            const res = await fetch(`/api/leads?${params.toString()}`);
+            const leads = await res.json();
+            if (!leads.length) {
+                leadsTable.style.display = 'none';
+                leadsEmpty.style.display = 'block';
+                return;
+            }
+            leadsTbody.innerHTML = leads.map(leadRowHtml).join('');
+            leadsTable.style.display = 'table';
+            leadsEmpty.style.display = 'none';
+        } catch (err) {
+            leadsEmpty.textContent = 'Could not load leads.';
+            leadsEmpty.style.display = 'block';
+            leadsTable.style.display = 'none';
+        }
+    }
+
+    document.getElementById('apply-filters-btn').addEventListener('click', loadLeads);
+    document.getElementById('clear-filters-btn').addEventListener('click', () => {
+        document.getElementById('f-q').value = '';
+        document.getElementById('f-equipment').value = '';
+        document.getElementById('f-mc-min').value = '';
+        document.getElementById('f-mc-max').value = '';
+        loadLeads();
+    });
+    document.getElementById('f-q').addEventListener('keydown', (e) => { if (e.key === 'Enter') loadLeads(); });
+
+    loadLeads();
+</script>
+{% endblock %}

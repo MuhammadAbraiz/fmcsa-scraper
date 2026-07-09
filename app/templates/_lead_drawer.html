@@ -1,0 +1,121 @@
+<div class="drawer-overlay" id="drawer-overlay"></div>
+<div class="drawer" id="lead-drawer">
+    <div class="drawer-header">
+        <h2 id="drawer-title">Lead Details</h2>
+        <button type="button" class="drawer-close" id="drawer-close-btn">&times;</button>
+    </div>
+    <div class="drawer-body" id="drawer-body">
+        <div class="drawer-loading">Loading...</div>
+    </div>
+</div>
+
+<script>
+(function() {
+    const overlay = document.getElementById('drawer-overlay');
+    const drawer = document.getElementById('lead-drawer');
+    const title = document.getElementById('drawer-title');
+    const body = document.getElementById('drawer-body');
+    let drawerCallId = null;
+
+    function iconSvg(name) {
+        if (name === 'call') return '<svg viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.362 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>';
+        return '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>';
+    }
+    window.leadIconSvg = iconSvg;
+
+    window.openLeadDrawer = async function(leadId) {
+        overlay.classList.add('open');
+        drawer.classList.add('open');
+        body.innerHTML = '<div class="drawer-loading">Loading...</div>';
+        drawerCallId = null;
+        try {
+            const res = await fetch(`/api/leads/${leadId}`);
+            const lead = await res.json();
+            if (!res.ok) throw new Error(lead.error || 'Not found');
+            renderDrawer(lead);
+        } catch (err) {
+            body.innerHTML = `<div class="alert alert-error">Could not load lead.</div>`;
+        }
+    };
+
+    function closeDrawer() {
+        overlay.classList.remove('open');
+        drawer.classList.remove('open');
+    }
+    window.closeLeadDrawer = closeDrawer;
+
+    overlay.addEventListener('click', closeDrawer);
+    document.getElementById('drawer-close-btn').addEventListener('click', closeDrawer);
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); });
+
+    function renderDrawer(lead) {
+        title.textContent = lead.legal_name || 'Lead Details';
+        const callsHtml = (lead.calls || []).length
+            ? `<table><thead><tr><th>When</th><th>Agent</th><th>Outcome</th><th>Note</th></tr></thead><tbody>${
+                lead.calls.map(c => `<tr><td>${c.called_at}</td><td>${c.agent_username}</td><td>${c.outcome || '—'}</td><td>${c.note || ''}</td></tr>`).join('')
+              }</tbody></table>`
+            : '<div class="table-empty">No calls logged yet.</div>';
+
+        body.innerHTML = `
+            <span class="equipment-tag">${lead.likely_equipment || ''}</span>
+            <dl class="lead-fields" style="margin-top:1.2em; grid-template-columns: 130px 1fr;">
+                <dt>USDOT</dt><dd>${lead.usdot || ''}</dd>
+                <dt>MC Number</dt><dd>${lead.mc_number || ''}</dd>
+                <dt>Entity Type</dt><dd>${lead.entity_type || ''}</dd>
+                <dt>Address</dt><dd>${lead.address || ''}</dd>
+                <dt>Phone</dt><dd>${lead.phone || ''}</dd>
+                <dt>Email</dt><dd>${lead.email || ''}</dd>
+                <dt>Power Units</dt><dd>${lead.power_units ?? ''}</dd>
+                <dt>Operating Status</dt><dd>${lead.operating_status || ''}</dd>
+                <dt>Cargo Carried</dt><dd>${lead.cargo_carried || ''}</dd>
+            </dl>
+            ${lead.phone ? `<a href="tel:${lead.phone}" id="drawer-call-btn" class="btn btn-success" style="width:100%;">Call ${lead.phone}</a>` : ''}
+            <div id="drawer-outcome-panel" class="outcome-panel" style="text-align:left;">
+                <div class="status-message">Call logged. Select an outcome:</div>
+                <div class="outcome-buttons" id="drawer-outcome-buttons">
+                    {% for outcome in outcomes %}
+                    <button type="button" class="outcome-btn" data-outcome="{{ outcome }}">{{ outcome }}</button>
+                    {% endfor %}
+                </div>
+                <textarea id="drawer-note" rows="2" style="width:100%;" placeholder="Optional note..."></textarea>
+                <button type="button" id="drawer-save-outcome-btn" class="btn-small" style="margin-top:0.6em;">Save</button>
+                <div id="drawer-outcome-saved" class="status-message" style="display:none;">Saved.</div>
+            </div>
+            <h2 style="margin-top:1.8em;">Call History</h2>
+            ${callsHtml}
+            <a href="/leads/${lead.id}" class="btn-secondary btn-small" style="margin-top:1em; display:inline-block;">Open full page</a>
+        `;
+
+        const callBtn = document.getElementById('drawer-call-btn');
+        const outcomePanel = document.getElementById('drawer-outcome-panel');
+        if (callBtn) {
+            callBtn.addEventListener('click', async () => {
+                try {
+                    const res = await fetch(`/leads/${lead.id}/call`, { method: 'POST' });
+                    const data = await res.json();
+                    drawerCallId = data.call_id;
+                    outcomePanel.style.display = 'block';
+                } catch (err) {}
+            });
+        }
+        document.getElementById('drawer-outcome-buttons').addEventListener('click', (e) => {
+            if (!e.target.classList.contains('outcome-btn')) return;
+            document.querySelectorAll('#drawer-outcome-buttons .outcome-btn').forEach(b => b.classList.remove('selected'));
+            e.target.classList.add('selected');
+            e.target.dataset.selected = 'true';
+            window.drawerSelectedOutcome = e.target.dataset.outcome;
+        });
+        document.getElementById('drawer-save-outcome-btn').addEventListener('click', async () => {
+            if (!drawerCallId || !window.drawerSelectedOutcome) return;
+            const note = document.getElementById('drawer-note').value;
+            const formBody = new FormData();
+            formBody.append('outcome', window.drawerSelectedOutcome);
+            formBody.append('note', note);
+            const res = await fetch(`/calls/${drawerCallId}/outcome`, { method: 'POST', body: formBody });
+            if (res.ok) {
+                document.getElementById('drawer-outcome-saved').style.display = 'block';
+            }
+        });
+    }
+})();
+</script>

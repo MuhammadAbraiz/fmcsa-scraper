@@ -37,7 +37,7 @@
         <div class="table-scroll">
         <table id="results-table" style="display:none;">
             <thead>
-                <tr><th>Legal Name</th><th>MC</th><th>Phone</th><th>Email</th><th>Likely Equipment</th><th></th></tr>
+                <tr><th>Legal Name</th><th>MC</th><th>Phone</th><th>Equipment</th><th></th></tr>
             </thead>
             <tbody id="results-tbody"></tbody>
         </table>
@@ -45,25 +45,30 @@
     </div>
 </div>
 
+{% if recent_jobs %}
 <div class="card">
-    <div class="section-header">
-        <h2>All Leads (Shared Pool)</h2>
-        <div>
-            <input type="text" id="leads-filter" placeholder="Filter by name, USDOT, MC..." style="width:220px; display:inline-block;">
-            <button type="button" id="refresh-leads-btn" class="btn-secondary btn-small">Refresh</button>
-            <a href="{{ url_for('agent.export_csv') }}" class="btn btn-success btn-small">Export CSV</a>
-        </div>
-    </div>
-    <div id="leads-empty" class="table-empty" style="display:none;">No leads yet.</div>
+    <h2>Your Recent Searches</h2>
     <div class="table-scroll">
-    <table id="leads-table" style="display:none;">
-        <thead>
-            <tr><th>Legal Name</th><th>MC</th><th>Phone</th><th>Email</th><th>Likely Equipment</th><th></th></tr>
-        </thead>
-        <tbody id="leads-tbody"></tbody>
+    <table>
+        <thead><tr><th>When</th><th>MC Range</th><th>Status</th><th>Processed / Total</th><th>Found</th><th></th></tr></thead>
+        <tbody>
+            {% for job in recent_jobs %}
+            <tr>
+                <td>{{ job.started_at }}</td>
+                <td>{{ job.start_mc }} – {{ job.end_mc }}</td>
+                <td>{{ job.status }}</td>
+                <td>{{ job.processed }} / {{ job.total }}</td>
+                <td>{{ job.found }}</td>
+                <td><button type="button" class="btn-secondary btn-small" onclick="viewPastJob('{{ job.job_uuid }}')">View Results</button></td>
+            </tr>
+            {% endfor %}
+        </tbody>
     </table>
     </div>
 </div>
+{% endif %}
+
+{% include '_lead_drawer.html' %}
 
 <script>
     const form = document.getElementById('scrape-form');
@@ -77,30 +82,26 @@
     const resultsTable = document.getElementById('results-table');
     const resultsEmpty = document.getElementById('results-empty');
     const ACTIVE_JOB_KEY = 'fmcsa_active_job_id';
+    const LAST_JOB_KEY = 'fmcsa_last_job_id';
     let pollTimer = null;
     let lastSeenLeadId = 0;
 
     function leadRowHtml(lead) {
         const phone = lead.phone || '';
-        const email = lead.email || '';
         return `
             <tr>
-                <td><a href="/leads/${lead.id}">${lead.legal_name || ''}</a></td>
+                <td>${lead.legal_name || ''}</td>
                 <td>${lead.mc_number || ''}</td>
                 <td>${phone}</td>
-                <td>${email}</td>
                 <td>${lead.likely_equipment || ''}</td>
                 <td>
-                    ${phone ? `<a href="tel:${phone}" class="btn btn-success btn-small" onclick="logCall(${lead.id})">Call</a>` : ''}
-                    <a href="/leads/${lead.id}" class="btn btn-secondary btn-small">Details</a>
+                    <div class="row-actions">
+                        ${phone ? `<a href="tel:${phone}" class="icon-btn icon-call" title="Call" onclick="fetch('/leads/${lead.id}/call',{method:'POST'}).catch(()=>{})">${window.leadIconSvg('call')}</a>` : ''}
+                        <button type="button" class="icon-btn icon-details" title="Details" onclick="openLeadDrawer(${lead.id})">${window.leadIconSvg('details')}</button>
+                    </div>
                 </td>
             </tr>`;
     }
-
-    function logCall(leadId) {
-        fetch(`/leads/${leadId}/call`, { method: 'POST' }).catch(() => {});
-    }
-    window.logCall = logCall;
 
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -125,6 +126,7 @@
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || 'Failed to start job');
             localStorage.setItem(ACTIVE_JOB_KEY, data.job_id);
+            localStorage.setItem(LAST_JOB_KEY, data.job_id);
             pollStatus(data.job_id);
         } catch (err) {
             progressSection.style.display = 'none';
@@ -172,26 +174,60 @@
 
     async function resumeActiveJobIfAny() {
         const jobId = localStorage.getItem(ACTIVE_JOB_KEY);
-        if (!jobId) return;
+        if (jobId) {
+            try {
+                const res = await fetch(`/search/${jobId}/status`);
+                if (!res.ok) { localStorage.removeItem(ACTIVE_JOB_KEY); }
+                else {
+                    const data = await res.json();
+                    resultsSection.style.display = 'block';
+                    progressSection.style.display = 'block';
+                    submitBtn.disabled = true;
+                    submitBtn.textContent = 'Running...';
+                    updateProgress(data);
+                    await fetchNewLeads(jobId);
+                    if (data.status === 'done' || data.status === 'error') {
+                        finishJob(data);
+                    } else {
+                        pollStatus(jobId);
+                    }
+                    return;
+                }
+            } catch (err) {
+                localStorage.removeItem(ACTIVE_JOB_KEY);
+            }
+        }
+        // No active job — show the last search's results read-only, if any, so a reload
+        // doesn't lose context of what you were just looking at.
+        const lastJobId = localStorage.getItem(LAST_JOB_KEY);
+        if (lastJobId) {
+            await viewPastJob(lastJobId, /* silent */ true);
+        }
+    }
+
+    window.viewPastJob = async function(jobId, silent) {
+        if (pollTimer) clearInterval(pollTimer);
+        lastSeenLeadId = 0;
+        resultsTbody.innerHTML = '';
         try {
             const res = await fetch(`/search/${jobId}/status`);
-            if (!res.ok) { localStorage.removeItem(ACTIVE_JOB_KEY); return; }
+            if (!res.ok) return;
             const data = await res.json();
             resultsSection.style.display = 'block';
             progressSection.style.display = 'block';
-            submitBtn.disabled = true;
-            submitBtn.textContent = 'Running...';
             updateProgress(data);
             await fetchNewLeads(jobId);
-            if (data.status === 'done' || data.status === 'error') {
-                finishJob(data);
-            } else {
+            if (data.status === 'running') {
+                localStorage.setItem(ACTIVE_JOB_KEY, jobId);
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Running...';
                 pollStatus(jobId);
+            } else if (!silent) {
+                showResult(data.status !== 'error', data.message || 'Done.');
             }
-        } catch (err) {
-            localStorage.removeItem(ACTIVE_JOB_KEY);
-        }
-    }
+            localStorage.setItem(LAST_JOB_KEY, jobId);
+        } catch (err) {}
+    };
 
     function updateProgress(data) {
         const total = data.total || 1;
@@ -209,7 +245,6 @@
             return;
         }
         showResult(true, data.message || 'Done.');
-        loadAllLeads();
     }
 
     function showResult(success, message) {
@@ -223,37 +258,6 @@
         submitBtn.textContent = 'Start Search';
     }
 
-    // --- shared lead pool ---
-    const leadsTbody = document.getElementById('leads-tbody');
-    const leadsTable = document.getElementById('leads-table');
-    const leadsEmpty = document.getElementById('leads-empty');
-    const leadsFilter = document.getElementById('leads-filter');
-
-    async function loadAllLeads() {
-        const q = leadsFilter.value.trim();
-        const url = q ? `/leads?q=${encodeURIComponent(q)}` : '/leads';
-        try {
-            const res = await fetch(url);
-            const leads = await res.json();
-            if (!leads.length) {
-                leadsTable.style.display = 'none';
-                leadsEmpty.style.display = 'block';
-                return;
-            }
-            leadsTbody.innerHTML = leads.map(leadRowHtml).join('');
-            leadsTable.style.display = 'table';
-            leadsEmpty.style.display = 'none';
-        } catch (err) {
-            leadsEmpty.textContent = 'Could not load leads.';
-            leadsEmpty.style.display = 'block';
-            leadsTable.style.display = 'none';
-        }
-    }
-
-    document.getElementById('refresh-leads-btn').addEventListener('click', loadAllLeads);
-    leadsFilter.addEventListener('keydown', (e) => { if (e.key === 'Enter') loadAllLeads(); });
-
-    loadAllLeads();
     resumeActiveJobIfAny();
 </script>
 {% endblock %}

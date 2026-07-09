@@ -12,7 +12,8 @@ bp = Blueprint('agent', __name__)
 @bp.route('/portal')
 @login_required
 def portal():
-    return render_template('agent_portal.html')
+    recent_jobs = models.list_search_jobs(agent_id=g.user['id'], limit=8)
+    return render_template('agent_portal.html', recent_jobs=recent_jobs, outcomes=models.CALL_OUTCOMES)
 
 
 @bp.route('/search', methods=['POST'])
@@ -52,10 +53,29 @@ def search_leads(job_id):
 
 
 @bp.route('/leads')
+@login_required
+def leads_page():
+    return render_template('leads.html', equipment_filters=models.EQUIPMENT_FILTERS, outcomes=models.CALL_OUTCOMES)
+
+
+@bp.route('/api/leads')
 @api_login_required
-def leads_list():
+def api_leads_list():
     q = request.args.get('q') or None
-    return jsonify(models.list_leads(q=q))
+    equipment = request.args.get('equipment') or None
+    mc_min = request.args.get('mc_min', type=int)
+    mc_max = request.args.get('mc_max', type=int)
+    return jsonify(models.list_leads(q=q, equipment=equipment, mc_min=mc_min, mc_max=mc_max))
+
+
+@bp.route('/api/leads/<int:lead_id>')
+@api_login_required
+def api_lead_detail(lead_id):
+    lead = models.get_lead(lead_id)
+    if lead is None:
+        return jsonify({'error': 'Lead not found'}), 404
+    lead['calls'] = models.get_call_logs_for_lead(lead_id)
+    return jsonify(lead)
 
 
 @bp.route('/queue')

@@ -19,6 +19,7 @@
             {% endif %}
             <a href="{{ url_for('agent.portal') }}" data-path="/portal">Search Portal</a>
             <a href="{{ url_for('agent.call_queue') }}" data-path="/queue">Call Queue</a>
+            <a href="{{ url_for('agent.leads_page') }}" data-path="/leads">All Leads</a>
         </div>
         <div class="nav-right">
             <span class="nav-user">{{ g.user.username }} · {{ g.user.role }}</span>

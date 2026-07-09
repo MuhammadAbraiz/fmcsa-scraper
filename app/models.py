@@ -186,18 +186,34 @@ def upsert_lead(fields, job_row_id, agent_id):
         conn.close()
 
 
-def list_leads(q=None, limit=500):
+EQUIPMENT_FILTERS = ['Dry Van', 'Reefer', 'Flatbed', 'Box Truck', 'Unknown']
+
+
+def list_leads(q=None, equipment=None, mc_min=None, mc_max=None, limit=500):
     conn = get_connection()
     try:
+        clauses = []
+        params = []
         if q:
             like = f'%{q}%'
-            rows = conn.execute(
-                'SELECT * FROM leads WHERE legal_name LIKE ? OR usdot LIKE ? OR mc_number LIKE ? '
-                'ORDER BY created_at DESC LIMIT ?',
-                (like, like, like, limit),
-            ).fetchall()
-        else:
-            rows = conn.execute('SELECT * FROM leads ORDER BY created_at DESC LIMIT ?', (limit,)).fetchall()
+            clauses.append('(legal_name LIKE ? OR usdot LIKE ? OR mc_number LIKE ?)')
+            params += [like, like, like]
+        if equipment:
+            clauses.append('likely_equipment LIKE ?')
+            params.append(f'{equipment}%')
+        if mc_min is not None:
+            clauses.append('mc_number >= ?')
+            params.append(mc_min)
+        if mc_max is not None:
+            clauses.append('mc_number <= ?')
+            params.append(mc_max)
+
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ''
+        params.append(limit)
+        rows = conn.execute(
+            f'SELECT * FROM leads {where} ORDER BY created_at DESC LIMIT ?',
+            params,
+        ).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
