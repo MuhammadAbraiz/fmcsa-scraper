@@ -4,15 +4,20 @@
 <div class="card">
     <div class="section-header">
         <h1 style="margin:0;">Call Log</h1>
-        <form method="get">
+        <form method="get" class="form-inline" style="align-items:center;">
             <select name="agent_id" onchange="this.form.submit()">
                 <option value="">All Agents</option>
                 {% for a in agents %}
                 <option value="{{ a.id }}" {{ 'selected' if selected_agent_id == a.id else '' }}>{{ a.username }}</option>
                 {% endfor %}
             </select>
+            <input type="date" name="date" value="{{ selected_date or '' }}" onchange="this.form.submit()">
+            {% if selected_date %}
+            <a href="{{ url_for('admin.calls', agent_id=selected_agent_id) }}" class="btn-secondary btn-small">Clear Date</a>
+            {% endif %}
         </form>
     </div>
+    <p style="font-size:0.85em;">Dates are "shift days" (5PM–3AM PKT counts as one day — today's shift is <strong>{{ current_shift_date }}</strong>), matching how the team actually works, not a plain calendar day.</p>
     {% if calls %}
     <div class="table-scroll">
     <table>
@@ -22,8 +27,8 @@
             <tr>
                 <td>{{ call.called_at }}</td>
                 <td><a href="{{ url_for('admin.agent_detail', user_id=call.agent_id) }}">{{ call.agent_username }}</a></td>
-                <td><a href="{{ url_for('agent.lead_detail', lead_id=call.lead_id) }}">{{ call.legal_name }}</a></td>
-                <td>{{ call.lead_phone }}</td>
+                <td><a href="{{ url_for('agent.lead_detail', lead_id=call.lead_id) }}">{{ call.legal_name or '(no name)' }}</a></td>
+                <td>{{ call.lead_phone or '—' }}</td>
                 <td>{{ call.outcome or '—' }}</td>
                 <td>{{ call.note or '' }}</td>
             </tr>
@@ -35,19 +40,19 @@
         <div class="pagination-info">Showing {{ (page - 1) * page_size + 1 }}–{{ [page * page_size, total] | min }} of {{ total }}</div>
         <div class="pagination-controls">
             {% if page > 1 %}
-            <a href="{{ url_for('admin.calls', agent_id=selected_agent_id, page=page-1) }}" class="btn-secondary btn-small">Previous</a>
+            <a href="{{ url_for('admin.calls', agent_id=selected_agent_id, date=selected_date, page=page-1) }}" class="btn-secondary btn-small">Previous</a>
             {% else %}
             <span class="btn-secondary btn-small" style="opacity:0.5; pointer-events:none;">Previous</span>
             {% endif %}
             {% if page * page_size < total %}
-            <a href="{{ url_for('admin.calls', agent_id=selected_agent_id, page=page+1) }}" class="btn-secondary btn-small">Next</a>
+            <a href="{{ url_for('admin.calls', agent_id=selected_agent_id, date=selected_date, page=page+1) }}" class="btn-secondary btn-small">Next</a>
             {% else %}
             <span class="btn-secondary btn-small" style="opacity:0.5; pointer-events:none;">Next</span>
             {% endif %}
         </div>
     </div>
     {% else %}
-    <div class="table-empty">No calls logged yet.</div>
+    <div class="table-empty">No calls logged for these filters.</div>
     {% endif %}
 </div>
 {% endblock %}

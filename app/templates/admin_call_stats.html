@@ -9,7 +9,12 @@
         <button type="button" class="period-btn btn-secondary" data-period="today">Today (PKT)</button>
         <button type="button" class="period-btn btn-secondary" data-period="week">Last 7 Days (PKT)</button>
         <button type="button" class="period-btn btn-secondary" data-period="all_time">All Time</button>
+        <div class="filter-field">
+            <label for="custom-date-input">Or check a specific shift day</label>
+            <input type="date" id="custom-date-input" max="{{ current_shift_date }}">
+        </div>
     </div>
+    <p style="text-align:center; font-size:0.85em;">A shift runs 5PM–3AM PKT, so calls made after midnight still count toward the day the shift started (today's shift is <strong>{{ current_shift_date }}</strong>).</p>
 
     <div class="summary-cards" id="team-total-cards"></div>
 </div>
@@ -50,7 +55,7 @@
     }
 
     function agentRowHtml(agent) {
-        let cells = `<td><a href="/admin/agents/${agent.agent_id}">${agent.full_name || agent.username}</a></td><td><strong>${agent.total}</strong></td>`;
+        let cells = `<td><a href="/admin/agents/${agent.agent_id}">${escapeHtml(agent.full_name || agent.username)}</a></td><td><strong>${agent.total}</strong></td>`;
         outcomeKeys.forEach(key => {
             cells += `<td>${agent[key] || 0}</td>`;
         });
@@ -58,15 +63,22 @@
         return `<tr>${cells}</tr>`;
     }
 
-    async function loadStats(period) {
+    async function loadStats(period, customDate) {
         currentPeriod = period;
         document.querySelectorAll('.period-btn').forEach(b => {
-            b.classList.toggle('btn-secondary', b.dataset.period !== period);
+            b.classList.toggle('btn-secondary', !customDate && b.dataset.period !== period);
+            if (customDate) b.classList.add('btn-secondary');
         });
-        document.getElementById('period-label').textContent = periodLabels[period];
+        document.getElementById('period-label').textContent = customDate
+            ? `Shift day: ${customDate}`
+            : periodLabels[period];
+
+        const url = customDate
+            ? `/admin/api/call-stats?date=${customDate}`
+            : `/admin/api/call-stats?period=${period}`;
 
         try {
-            const res = await fetch(`/admin/api/call-stats?period=${period}`);
+            const res = await fetch(url);
             const data = await res.json();
             document.getElementById('team-total-cards').innerHTML = teamCardsHtml(data.team_total);
 
@@ -84,8 +96,17 @@
         } catch (err) {}
     }
 
+    const customDateInput = document.getElementById('custom-date-input');
+
     document.querySelectorAll('.period-btn').forEach(btn => {
-        btn.addEventListener('click', () => loadStats(btn.dataset.period));
+        btn.addEventListener('click', () => {
+            customDateInput.value = '';
+            loadStats(btn.dataset.period);
+        });
+    });
+
+    customDateInput.addEventListener('change', () => {
+        if (customDateInput.value) loadStats(null, customDateInput.value);
     });
 
     loadStats('today');

@@ -8,6 +8,15 @@ from .auth import api_login_required, login_required
 
 bp = Blueprint('agent', __name__)
 
+_CSV_FORMULA_PREFIXES = ('=', '+', '-', '@', '\t', '\r')
+
+
+def _csv_safe(value):
+    text = '' if value is None else str(value)
+    if text and text[0] in _CSV_FORMULA_PREFIXES:
+        return "'" + text
+    return text
+
 
 @bp.route('/portal')
 @login_required
@@ -143,7 +152,7 @@ def export_csv():
     ]
     writer.writerow(columns)
     for lead in leads:
-        writer.writerow([lead.get(c, '') for c in columns])
+        writer.writerow([_csv_safe(lead.get(c, '')) for c in columns])
     return Response(
         output.getvalue(),
         mimetype='text/csv',

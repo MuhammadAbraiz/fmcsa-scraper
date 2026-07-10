@@ -1,4 +1,5 @@
 import os
+import re
 from datetime import datetime
 
 from flask import Blueprint, jsonify, redirect, render_template, request, send_from_directory, url_for
@@ -7,6 +8,14 @@ from . import models, scraper
 from .auth import admin_required, api_admin_required
 
 bp = Blueprint('admin', __name__, url_prefix='/admin')
+
+DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2}$')
+
+
+def _valid_date_param():
+    """Reads ?date=YYYY-MM-DD from the query string; returns None if absent/malformed."""
+    value = request.args.get('date')
+    return value if value and DATE_RE.match(value) else None
 
 
 @bp.route('')
@@ -69,8 +78,18 @@ def activate_agent(user_id):
 @admin_required
 def reset_agent_password(user_id):
     new_password = request.form.get('new_password', '')
-    if len(new_password) >= 6:
-        models.set_user_password(user_id, new_password)
+    if len(new_password) < 6:
+        agent = models.get_user_by_id(user_id)
+        if agent is None or agent['role'] != 'agent':
+            return render_template('error.html', message='Agent not found.'), 404
+        jobs = models.list_search_jobs(agent_id=user_id)
+        calls = models.list_call_logs(agent_id=user_id)
+        call_stats = {p: models.call_outcome_breakdown(period=p, agent_id=user_id) for p in models.CALL_STAT_PERIODS}
+        return render_template(
+            'admin_agent_detail.html', agent=agent, jobs=jobs, calls=calls, call_stats=call_stats,
+            password_error='Password must be at least 6 characters.',
+        )
+    models.set_user_password(user_id, new_password)
     return redirect(url_for('admin.agent_detail', user_id=user_id))
 
 
@@ -80,18 +99,22 @@ PAGE_SIZE = 500
 @bp.route('/call-stats')
 @admin_required
 def call_stats():
-    return render_template('admin_call_stats.html', outcomes=models.CALL_OUTCOMES)
+    return render_template(
+        'admin_call_stats.html', outcomes=models.CALL_OUTCOMES,
+        current_shift_date=models.current_shift_date(),
+    )
 
 
 @bp.route('/api/call-stats')
 @api_admin_required
 def api_call_stats():
+    custom_date = _valid_date_param()
     period = request.args.get('period', 'today')
-    if period not in models.CALL_STAT_PERIODS:
+    if not custom_date and period not in models.CALL_STAT_PERIODS:
         return jsonify({'error': 'Invalid period'}), 400
     return jsonify({
-        'team_total': models.call_outcome_breakdown(period=period),
-        'agents': models.agent_call_stats(period=period),
+        'team_total': models.call_outcome_breakdown(period=period, custom_date=custom_date),
+        'agents': models.agent_call_stats(period=period, custom_date=custom_date),
     })
 
 
@@ -99,14 +122,16 @@ def api_call_stats():
 @admin_required
 def calls():
     agent_id = request.args.get('agent_id', type=int)
+    shift_date = _valid_date_param()
     page = max(1, request.args.get('page', 1, type=int))
     offset = (page - 1) * PAGE_SIZE
 
-    call_logs = models.list_call_logs(agent_id=agent_id, limit=PAGE_SIZE, offset=offset)
-    total = models.count_call_logs(agent_id=agent_id)
+    call_logs = models.list_call_logs(agent_id=agent_id, limit=PAGE_SIZE, offset=offset, shift_date=shift_date)
+    total = models.count_call_logs(agent_id=agent_id, shift_date=shift_date)
     return render_template(
         'admin_calls.html', calls=call_logs, agents=models.list_agents(), selected_agent_id=agent_id,
-        page=page, page_size=PAGE_SIZE, total=total,
+        page=page, page_size=PAGE_SIZE, total=total, selected_date=shift_date,
+        current_shift_date=models.current_shift_date(),
     )
 
 

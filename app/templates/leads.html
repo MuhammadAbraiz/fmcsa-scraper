@@ -64,16 +64,17 @@
 
     function leadRowHtml(lead) {
         const phone = lead.phone || '';
+        const safePhone = escapeHtml(phone);
         const calledClass = lead.been_called ? ' called' : '';
         return `
             <tr>
-                <td>${lead.legal_name || ''}</td>
-                <td>${lead.mc_number || ''}</td>
-                <td>${phone}</td>
-                <td>${lead.likely_equipment || ''}</td>
+                <td>${escapeHtml(lead.legal_name)}</td>
+                <td>${escapeHtml(lead.mc_number)}</td>
+                <td>${safePhone}</td>
+                <td>${escapeHtml(lead.likely_equipment)}</td>
                 <td>
                     <div class="row-actions">
-                        ${phone ? `<a href="tel:${phone}" class="icon-btn icon-call${calledClass}" title="Call" onclick="markCalled(this, ${lead.id})">${window.leadIconSvg('call')}</a>` : ''}
+                        ${phone ? `<a href="tel:${safePhone}" class="icon-btn icon-call${calledClass}" title="Call" onclick="markCalled(this, ${lead.id})">${window.leadIconSvg('call')}</a>` : ''}
                         <button type="button" class="icon-btn icon-details" title="Details" onclick="openLeadDrawer(${lead.id})">${window.leadIconSvg('details')}</button>
                     </div>
                 </td>

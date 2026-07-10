@@ -2,26 +2,26 @@
 {% block title %}{{ lead.legal_name }} — Lead Detail{% endblock %}
 {% block content %}
 <div class="card">
-    <h1>{{ lead.legal_name }}</h1>
-    <span class="equipment-tag">{{ lead.likely_equipment }}</span>
+    <h1>{{ lead.legal_name or '(no name on file)' }}</h1>
+    <span class="equipment-tag">{{ lead.likely_equipment or 'Unknown' }}</span>
 
     <dl class="lead-fields" style="margin-top:1.5em;">
-        <dt>USDOT Number</dt><dd>{{ lead.usdot }}</dd>
-        <dt>MC Number</dt><dd>{{ lead.mc_number }}</dd>
-        <dt>MC/MX/FF Numbers</dt><dd>{{ lead.mc_mx_ff_numbers }}</dd>
-        <dt>Entity Type</dt><dd>{{ lead.entity_type }}</dd>
-        <dt>Address</dt><dd>{{ lead.address }}</dd>
-        <dt>Phone</dt><dd>{{ lead.phone }}</dd>
-        <dt>Email</dt><dd>{{ lead.email }}</dd>
-        <dt>Power Units</dt><dd>{{ lead.power_units }}</dd>
-        <dt>Drivers</dt><dd>{{ lead.drivers }}</dd>
-        <dt>MCS-150 Form Date</dt><dd>{{ lead.mcs_150_form_date }}</dd>
-        <dt>MCS-150 Mileage</dt><dd>{{ lead.mcs_150_mileage }} ({{ lead.mcs_150_mileage_year }})</dd>
-        <dt>Out of Service Date</dt><dd>{{ lead.out_of_service_date }}</dd>
-        <dt>Operating Status</dt><dd>{{ lead.operating_status }}</dd>
-        <dt>Operation Classification</dt><dd>{{ lead.operation_classification }}</dd>
-        <dt>Carrier Operation</dt><dd>{{ lead.carrier_operation }}</dd>
-        <dt>Cargo Carried</dt><dd>{{ lead.cargo_carried }}</dd>
+        <dt>USDOT Number</dt><dd>{{ lead.usdot or '—' }}</dd>
+        <dt>MC Number</dt><dd>{{ lead.mc_number or '—' }}</dd>
+        <dt>MC/MX/FF Numbers</dt><dd>{{ lead.mc_mx_ff_numbers or '—' }}</dd>
+        <dt>Entity Type</dt><dd>{{ lead.entity_type or '—' }}</dd>
+        <dt>Address</dt><dd>{{ lead.address or '—' }}</dd>
+        <dt>Phone</dt><dd>{{ lead.phone or '—' }}</dd>
+        <dt>Email</dt><dd>{{ lead.email or '—' }}</dd>
+        <dt>Power Units</dt><dd>{{ lead.power_units if lead.power_units is not none else '—' }}</dd>
+        <dt>Drivers</dt><dd>{{ lead.drivers if lead.drivers is not none else '—' }}</dd>
+        <dt>MCS-150 Form Date</dt><dd>{{ lead.mcs_150_form_date or '—' }}</dd>
+        <dt>MCS-150 Mileage</dt><dd>{{ lead.mcs_150_mileage or '—' }} ({{ lead.mcs_150_mileage_year or '—' }})</dd>
+        <dt>Out of Service Date</dt><dd>{{ lead.out_of_service_date or '—' }}</dd>
+        <dt>Operating Status</dt><dd>{{ lead.operating_status or '—' }}</dd>
+        <dt>Operation Classification</dt><dd>{{ lead.operation_classification or '—' }}</dd>
+        <dt>Carrier Operation</dt><dd>{{ lead.carrier_operation or '—' }}</dd>
+        <dt>Cargo Carried</dt><dd>{{ lead.cargo_carried or '—' }}</dd>
     </dl>
 
     {% if lead.phone %}

@@ -369,36 +369,43 @@ def update_call_outcome(call_id, outcome, note, requesting_user):
         conn.close()
 
 
-def list_call_logs(agent_id=None, limit=200, offset=0):
+def _call_log_filter_clauses(agent_id=None, shift_date=None):
+    clauses = []
+    params = []
+    if agent_id is not None:
+        clauses.append('cl.agent_id = ?')
+        params.append(agent_id)
+    if shift_date:
+        date_sql, date_params = _period_clause('cl.called_at', custom_date=shift_date)
+        clauses.append(date_sql)
+        params += date_params
+    return clauses, params
+
+
+def list_call_logs(agent_id=None, limit=200, offset=0, shift_date=None):
     conn = get_connection()
     try:
-        base = (
+        clauses, params = _call_log_filter_clauses(agent_id, shift_date)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ''
+        rows = conn.execute(
             'SELECT cl.*, u.username AS agent_username, l.legal_name, l.usdot, l.phone AS lead_phone '
             'FROM call_logs cl '
             'JOIN users u ON u.id = cl.agent_id '
             'JOIN leads l ON l.id = cl.lead_id '
-        )
-        if agent_id is not None:
-            rows = conn.execute(
-                base + 'WHERE cl.agent_id = ? ORDER BY cl.called_at DESC LIMIT ? OFFSET ?',
-                (agent_id, limit, offset),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                base + 'ORDER BY cl.called_at DESC LIMIT ? OFFSET ?', (limit, offset)
-            ).fetchall()
+            f'{where} ORDER BY cl.called_at DESC LIMIT ? OFFSET ?',
+            params + [limit, offset],
+        ).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
 
 
-def count_call_logs(agent_id=None):
+def count_call_logs(agent_id=None, shift_date=None):
     conn = get_connection()
     try:
-        if agent_id is not None:
-            row = conn.execute('SELECT COUNT(*) FROM call_logs WHERE agent_id = ?', (agent_id,)).fetchone()
-        else:
-            row = conn.execute('SELECT COUNT(*) FROM call_logs').fetchone()
+        clauses, params = _call_log_filter_clauses(agent_id, shift_date)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ''
+        row = conn.execute(f'SELECT COUNT(*) FROM call_logs cl {where}', params).fetchone()
         return row[0]
     finally:
         conn.close()
@@ -418,23 +425,53 @@ def get_call_logs_for_lead(lead_id):
         conn.close()
 
 
-# --- dashboard summary ---
+# --- dashboard summary / call stats ---
 
-# Timestamps are stored in UTC (SQLite's datetime('now')). The team works
-# nights in Pakistan (a shift that spans US daytime), so "today" is bucketed
-# in Pakistan Standard Time rather than UTC or US time — PKT is a fixed
-# UTC+5 with no DST, which keeps the SQL simple (no seasonal offset changes).
+# Timestamps are stored in UTC (SQLite's datetime('now')). The team works a
+# night shift in Pakistan — 5PM to 3AM PKT — that covers US daytime. A shift
+# that starts Monday 5PM and runs past midnight into Tuesday 3AM is still
+# "Monday's calling," so a plain PKT calendar-day boundary is wrong: it would
+# split one shift across two dates. Instead we compute a "shift date" per
+# call: anything before 3AM PKT counts toward the previous calendar day.
+# PKT itself is a fixed UTC+5 with no DST, which keeps this arithmetic simple
+# (no seasonal offset changes to worry about).
 PKT_OFFSET = '+5 hours'
+SHIFT_CUTOFF = '03:00:00'  # calls before this PKT time belong to the previous day's shift
 
 CALL_STAT_PERIODS = ('today', 'week', 'all_time')
 
 
-def _pkt_period_clause(column, period):
-    if period == 'today':
-        return f"date({column}, '{PKT_OFFSET}') = date('now', '{PKT_OFFSET}')"
+def _shift_date_expr(column):
+    """SQL expression: the shift-day (as a date string) that `column` falls into."""
+    return (
+        f"(CASE WHEN time({column}, '{PKT_OFFSET}') < '{SHIFT_CUTOFF}' "
+        f"THEN date({column}, '{PKT_OFFSET}', '-1 day') "
+        f"ELSE date({column}, '{PKT_OFFSET}') END)"
+    )
+
+
+def _period_clause(column, period='today', custom_date=None):
+    """Returns (sql_clause, params) filtering `column` by shift-day period."""
+    shift_expr = _shift_date_expr(column)
+    if custom_date:
+        return f'{shift_expr} = ?', [custom_date]
+    current_shift_expr = _shift_date_expr("'now'")
     if period == 'week':
-        return f"date({column}, '{PKT_OFFSET}') >= date('now', '{PKT_OFFSET}', '-6 days')"
-    return '1=1'
+        return f"{shift_expr} >= date({current_shift_expr}, '-6 days')", []
+    if period == 'all_time':
+        return '1=1', []
+    return f'{shift_expr} = {current_shift_expr}', []  # 'today' (current shift) / default
+
+
+def current_shift_date():
+    """Today's shift date (as the admin would label it), e.g. for defaulting a date picker."""
+    now_literal = "'now'"
+    conn = get_connection()
+    try:
+        row = conn.execute(f'SELECT {_shift_date_expr(now_literal)}').fetchone()
+        return row[0]
+    finally:
+        conn.close()
 
 
 def _outcome_sum_columns(column_prefix='cl'):
@@ -449,14 +486,15 @@ def _outcome_sum_columns(column_prefix='cl'):
     return ', '.join(parts)
 
 
-def call_outcome_breakdown(period='today', agent_id=None):
-    """Team-wide (or single-agent) call totals + outcome breakdown for a period, in PKT."""
+def call_outcome_breakdown(period='today', agent_id=None, custom_date=None):
+    """Team-wide (or single-agent) call totals + outcome breakdown for a shift-day period."""
     if period not in CALL_STAT_PERIODS:
         period = 'today'
     conn = get_connection()
     try:
-        clauses = [_pkt_period_clause('called_at', period)]
-        params = []
+        period_sql, period_params = _period_clause('called_at', period, custom_date)
+        clauses = [period_sql]
+        params = list(period_params)
         if agent_id is not None:
             clauses.append('agent_id = ?')
             params.append(agent_id)
@@ -470,8 +508,8 @@ def call_outcome_breakdown(period='today', agent_id=None):
         conn.close()
 
 
-def agent_call_stats(period='today'):
-    """Per-agent call totals + outcome breakdown for a period, in PKT.
+def agent_call_stats(period='today', custom_date=None):
+    """Per-agent call totals + outcome breakdown for a shift-day period.
 
     Uses a LEFT JOIN with the period filter in the ON clause (not WHERE) so
     agents with zero calls in the period still show up with all-zero counts,
@@ -481,14 +519,15 @@ def agent_call_stats(period='today'):
         period = 'today'
     conn = get_connection()
     try:
-        join_clause = _pkt_period_clause('cl.called_at', period)
+        join_sql, join_params = _period_clause('cl.called_at', period, custom_date)
         rows = conn.execute(
             f"SELECT u.id AS agent_id, u.username, u.full_name, {_outcome_sum_columns('cl')} "
             'FROM users u '
-            f'LEFT JOIN call_logs cl ON cl.agent_id = u.id AND {join_clause} '
+            f'LEFT JOIN call_logs cl ON cl.agent_id = u.id AND {join_sql} '
             "WHERE u.role = 'agent' "
             'GROUP BY u.id, u.username, u.full_name '
-            'ORDER BY total DESC, u.username ASC'
+            'ORDER BY total DESC, u.username ASC',
+            join_params,
         ).fetchall()
         return [dict(r) for r in rows]
     finally:
@@ -500,12 +539,10 @@ def dashboard_summary():
     try:
         total_leads = conn.execute('SELECT COUNT(*) FROM leads').fetchone()[0]
         active_agents = conn.execute("SELECT COUNT(*) FROM users WHERE role='agent' AND is_active=1").fetchone()[0]
-        jobs_today = conn.execute(
-            f"SELECT COUNT(*) FROM search_jobs WHERE {_pkt_period_clause('started_at', 'today')}"
-        ).fetchone()[0]
-        calls_today = conn.execute(
-            f"SELECT COUNT(*) FROM call_logs WHERE {_pkt_period_clause('called_at', 'today')}"
-        ).fetchone()[0]
+        jobs_today_sql, _ = _period_clause('started_at', 'today')
+        calls_today_sql, _ = _period_clause('called_at', 'today')
+        jobs_today = conn.execute(f'SELECT COUNT(*) FROM search_jobs WHERE {jobs_today_sql}').fetchone()[0]
+        calls_today = conn.execute(f'SELECT COUNT(*) FROM call_logs WHERE {calls_today_sql}').fetchone()[0]
         return {
             'total_leads': total_leads,
             'active_agents': active_agents,

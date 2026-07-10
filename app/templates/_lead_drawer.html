@@ -50,26 +50,27 @@
 
     function renderDrawer(lead) {
         title.textContent = lead.legal_name || 'Lead Details';
+        const safePhone = escapeHtml(lead.phone);
         const callsHtml = (lead.calls || []).length
             ? `<table><thead><tr><th>When</th><th>Agent</th><th>Outcome</th><th>Note</th></tr></thead><tbody>${
-                lead.calls.map(c => `<tr><td>${c.called_at}</td><td>${c.agent_username}</td><td>${c.outcome || '—'}</td><td>${c.note || ''}</td></tr>`).join('')
+                lead.calls.map(c => `<tr><td>${escapeHtml(c.called_at)}</td><td>${escapeHtml(c.agent_username)}</td><td>${escapeHtml(c.outcome) || '—'}</td><td>${escapeHtml(c.note)}</td></tr>`).join('')
               }</tbody></table>`
             : '<div class="table-empty">No calls logged yet.</div>';
 
         body.innerHTML = `
-            <span class="equipment-tag">${lead.likely_equipment || ''}</span>
+            <span class="equipment-tag">${escapeHtml(lead.likely_equipment)}</span>
             <dl class="lead-fields" style="margin-top:1.2em; grid-template-columns: 130px 1fr;">
-                <dt>USDOT</dt><dd>${lead.usdot || ''}</dd>
-                <dt>MC Number</dt><dd>${lead.mc_number || ''}</dd>
-                <dt>Entity Type</dt><dd>${lead.entity_type || ''}</dd>
-                <dt>Address</dt><dd>${lead.address || ''}</dd>
-                <dt>Phone</dt><dd>${lead.phone || ''}</dd>
-                <dt>Email</dt><dd>${lead.email || ''}</dd>
-                <dt>Power Units</dt><dd>${lead.power_units ?? ''}</dd>
-                <dt>Operating Status</dt><dd>${lead.operating_status || ''}</dd>
-                <dt>Cargo Carried</dt><dd>${lead.cargo_carried || ''}</dd>
+                <dt>USDOT</dt><dd>${escapeHtml(lead.usdot)}</dd>
+                <dt>MC Number</dt><dd>${escapeHtml(lead.mc_number)}</dd>
+                <dt>Entity Type</dt><dd>${escapeHtml(lead.entity_type)}</dd>
+                <dt>Address</dt><dd>${escapeHtml(lead.address)}</dd>
+                <dt>Phone</dt><dd>${safePhone}</dd>
+                <dt>Email</dt><dd>${escapeHtml(lead.email)}</dd>
+                <dt>Power Units</dt><dd>${escapeHtml(lead.power_units)}</dd>
+                <dt>Operating Status</dt><dd>${escapeHtml(lead.operating_status)}</dd>
+                <dt>Cargo Carried</dt><dd>${escapeHtml(lead.cargo_carried)}</dd>
             </dl>
-            ${lead.phone ? `<a href="tel:${lead.phone}" id="drawer-call-btn" class="btn btn-success${lead.been_called ? ' called' : ''}" style="width:100%;">Call ${lead.phone}</a>` : ''}
+            ${lead.phone ? `<a href="tel:${safePhone}" id="drawer-call-btn" class="btn btn-success${lead.been_called ? ' called' : ''}" style="width:100%;">Call ${safePhone}</a>` : ''}
             <div id="drawer-outcome-panel" class="outcome-panel" style="text-align:left;">
                 <div class="status-message">Call logged. Select an outcome:</div>
                 <div class="outcome-buttons" id="drawer-outcome-buttons">

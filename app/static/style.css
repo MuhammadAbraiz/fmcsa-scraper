@@ -362,4 +362,5 @@ td a:hover { text-decoration: underline; }
     .drawer { width: 100vw; }
     .filter-bar { flex-direction: column; align-items: stretch; }
     .filter-bar input, .filter-bar select { min-width: 0; width: 100%; }
+    .navbar { position: static; }
 }
