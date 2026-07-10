@@ -1,0 +1,93 @@
+{% extends 'base.html' %}
+{% block title %}Call Activity{% endblock %}
+{% block content %}
+<div class="card">
+    <h1>Call Activity</h1>
+    <p style="text-align:center;">All figures are bucketed by Pakistan time (PKT, UTC+5) since that's when the team actually works, not by the US market's calendar day.</p>
+
+    <div class="filter-bar" style="justify-content:center;">
+        <button type="button" class="period-btn btn-secondary" data-period="today">Today (PKT)</button>
+        <button type="button" class="period-btn btn-secondary" data-period="week">Last 7 Days (PKT)</button>
+        <button type="button" class="period-btn btn-secondary" data-period="all_time">All Time</button>
+    </div>
+
+    <div class="summary-cards" id="team-total-cards"></div>
+</div>
+
+<div class="card">
+    <div class="section-header">
+        <h2>Per-Agent Breakdown</h2>
+        <span class="pagination-info" id="period-label"></span>
+    </div>
+    <div id="agents-empty" class="table-empty" style="display:none;">No agents yet.</div>
+    <div class="table-scroll">
+    <table id="agents-table" style="display:none;">
+        <thead>
+            <tr>
+                <th>Agent</th><th>Total</th>
+                {% for outcome in outcomes %}<th>{{ outcome }}</th>{% endfor %}
+                <th>Pending</th>
+            </tr>
+        </thead>
+        <tbody id="agents-tbody"></tbody>
+    </table>
+    </div>
+</div>
+
+<script>
+    const outcomeKeys = {{ outcomes | tojson }}.map(o => o.toLowerCase().replace(/ /g, '_'));
+    let currentPeriod = 'today';
+
+    const periodLabels = { today: 'Today (PKT)', week: 'Last 7 Days (PKT)', all_time: 'All Time' };
+
+    function teamCardsHtml(stats) {
+        const parts = [`<div class="summary-card"><div class="value">${stats.total}</div><div class="label">Total Calls</div></div>`];
+        {% for outcome in outcomes %}
+        parts.push(`<div class="summary-card"><div class="value">${stats.{{ outcome.lower().replace(' ', '_') }} || 0}</div><div class="label">{{ outcome }}</div></div>`);
+        {% endfor %}
+        parts.push(`<div class="summary-card"><div class="value">${stats.pending || 0}</div><div class="label">Pending (No Outcome Yet)</div></div>`);
+        return parts.join('');
+    }
+
+    function agentRowHtml(agent) {
+        let cells = `<td><a href="/admin/agents/${agent.agent_id}">${agent.full_name || agent.username}</a></td><td><strong>${agent.total}</strong></td>`;
+        outcomeKeys.forEach(key => {
+            cells += `<td>${agent[key] || 0}</td>`;
+        });
+        cells += `<td>${agent.pending || 0}</td>`;
+        return `<tr>${cells}</tr>`;
+    }
+
+    async function loadStats(period) {
+        currentPeriod = period;
+        document.querySelectorAll('.period-btn').forEach(b => {
+            b.classList.toggle('btn-secondary', b.dataset.period !== period);
+        });
+        document.getElementById('period-label').textContent = periodLabels[period];
+
+        try {
+            const res = await fetch(`/admin/api/call-stats?period=${period}`);
+            const data = await res.json();
+            document.getElementById('team-total-cards').innerHTML = teamCardsHtml(data.team_total);
+
+            const tbody = document.getElementById('agents-tbody');
+            const table = document.getElementById('agents-table');
+            const empty = document.getElementById('agents-empty');
+            if (!data.agents.length) {
+                table.style.display = 'none';
+                empty.style.display = 'block';
+                return;
+            }
+            tbody.innerHTML = data.agents.map(agentRowHtml).join('');
+            table.style.display = 'table';
+            empty.style.display = 'none';
+        } catch (err) {}
+    }
+
+    document.querySelectorAll('.period-btn').forEach(btn => {
+        btn.addEventListener('click', () => loadStats(btn.dataset.period));
+    });
+
+    loadStats('today');
+</script>
+{% endblock %}

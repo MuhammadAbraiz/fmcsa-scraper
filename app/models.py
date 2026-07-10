@@ -420,16 +420,91 @@ def get_call_logs_for_lead(lead_id):
 
 # --- dashboard summary ---
 
+# Timestamps are stored in UTC (SQLite's datetime('now')). The team works
+# nights in Pakistan (a shift that spans US daytime), so "today" is bucketed
+# in Pakistan Standard Time rather than UTC or US time — PKT is a fixed
+# UTC+5 with no DST, which keeps the SQL simple (no seasonal offset changes).
+PKT_OFFSET = '+5 hours'
+
+CALL_STAT_PERIODS = ('today', 'week', 'all_time')
+
+
+def _pkt_period_clause(column, period):
+    if period == 'today':
+        return f"date({column}, '{PKT_OFFSET}') = date('now', '{PKT_OFFSET}')"
+    if period == 'week':
+        return f"date({column}, '{PKT_OFFSET}') >= date('now', '{PKT_OFFSET}', '-6 days')"
+    return '1=1'
+
+
+def _outcome_sum_columns(column_prefix='cl'):
+    parts = [f'COUNT({column_prefix}.id) AS total']
+    for outcome in CALL_OUTCOMES:
+        alias = outcome.lower().replace(' ', '_')
+        parts.append(f"SUM(CASE WHEN {column_prefix}.outcome = '{outcome}' THEN 1 ELSE 0 END) AS {alias}")
+    # id IS NOT NULL excludes the LEFT JOIN "no match" row (agent_call_stats)
+    # from being miscounted as a pending call — only a real call_logs row
+    # with a genuinely unset outcome should count here.
+    parts.append(f'SUM(CASE WHEN {column_prefix}.id IS NOT NULL AND {column_prefix}.outcome IS NULL THEN 1 ELSE 0 END) AS pending')
+    return ', '.join(parts)
+
+
+def call_outcome_breakdown(period='today', agent_id=None):
+    """Team-wide (or single-agent) call totals + outcome breakdown for a period, in PKT."""
+    if period not in CALL_STAT_PERIODS:
+        period = 'today'
+    conn = get_connection()
+    try:
+        clauses = [_pkt_period_clause('called_at', period)]
+        params = []
+        if agent_id is not None:
+            clauses.append('agent_id = ?')
+            params.append(agent_id)
+        where = ' AND '.join(clauses)
+        row = conn.execute(
+            f"SELECT {_outcome_sum_columns('call_logs')} FROM call_logs WHERE {where}",
+            params,
+        ).fetchone()
+        return dict(row)
+    finally:
+        conn.close()
+
+
+def agent_call_stats(period='today'):
+    """Per-agent call totals + outcome breakdown for a period, in PKT.
+
+    Uses a LEFT JOIN with the period filter in the ON clause (not WHERE) so
+    agents with zero calls in the period still show up with all-zero counts,
+    instead of disappearing from the table.
+    """
+    if period not in CALL_STAT_PERIODS:
+        period = 'today'
+    conn = get_connection()
+    try:
+        join_clause = _pkt_period_clause('cl.called_at', period)
+        rows = conn.execute(
+            f"SELECT u.id AS agent_id, u.username, u.full_name, {_outcome_sum_columns('cl')} "
+            'FROM users u '
+            f'LEFT JOIN call_logs cl ON cl.agent_id = u.id AND {join_clause} '
+            "WHERE u.role = 'agent' "
+            'GROUP BY u.id, u.username, u.full_name '
+            'ORDER BY total DESC, u.username ASC'
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
 def dashboard_summary():
     conn = get_connection()
     try:
         total_leads = conn.execute('SELECT COUNT(*) FROM leads').fetchone()[0]
         active_agents = conn.execute("SELECT COUNT(*) FROM users WHERE role='agent' AND is_active=1").fetchone()[0]
         jobs_today = conn.execute(
-            "SELECT COUNT(*) FROM search_jobs WHERE date(started_at) = date('now')"
+            f"SELECT COUNT(*) FROM search_jobs WHERE {_pkt_period_clause('started_at', 'today')}"
         ).fetchone()[0]
         calls_today = conn.execute(
-            "SELECT COUNT(*) FROM call_logs WHERE date(called_at) = date('now')"
+            f"SELECT COUNT(*) FROM call_logs WHERE {_pkt_period_clause('called_at', 'today')}"
         ).fetchone()[0]
         return {
             'total_leads': total_leads,

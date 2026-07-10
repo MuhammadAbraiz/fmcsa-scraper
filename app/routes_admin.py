@@ -1,10 +1,10 @@
 import os
 from datetime import datetime
 
-from flask import Blueprint, redirect, render_template, request, send_from_directory, url_for
+from flask import Blueprint, jsonify, redirect, render_template, request, send_from_directory, url_for
 
 from . import models, scraper
-from .auth import admin_required
+from .auth import admin_required, api_admin_required
 
 bp = Blueprint('admin', __name__, url_prefix='/admin')
 
@@ -47,7 +47,8 @@ def agent_detail(user_id):
         return render_template('error.html', message='Agent not found.'), 404
     jobs = models.list_search_jobs(agent_id=user_id)
     calls = models.list_call_logs(agent_id=user_id)
-    return render_template('admin_agent_detail.html', agent=agent, jobs=jobs, calls=calls)
+    call_stats = {p: models.call_outcome_breakdown(period=p, agent_id=user_id) for p in models.CALL_STAT_PERIODS}
+    return render_template('admin_agent_detail.html', agent=agent, jobs=jobs, calls=calls, call_stats=call_stats)
 
 
 @bp.route('/agents/<int:user_id>/deactivate', methods=['POST'])
@@ -74,6 +75,24 @@ def reset_agent_password(user_id):
 
 
 PAGE_SIZE = 500
+
+
+@bp.route('/call-stats')
+@admin_required
+def call_stats():
+    return render_template('admin_call_stats.html', outcomes=models.CALL_OUTCOMES)
+
+
+@bp.route('/api/call-stats')
+@api_admin_required
+def api_call_stats():
+    period = request.args.get('period', 'today')
+    if period not in models.CALL_STAT_PERIODS:
+        return jsonify({'error': 'Invalid period'}), 400
+    return jsonify({
+        'team_total': models.call_outcome_breakdown(period=period),
+        'agents': models.agent_call_stats(period=period),
+    })
 
 
 @bp.route('/calls')

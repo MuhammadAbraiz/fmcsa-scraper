@@ -6,9 +6,10 @@
     <div class="summary-cards">
         <div class="summary-card"><div class="value">{{ summary.total_leads }}</div><div class="label">Total Leads</div></div>
         <div class="summary-card"><div class="value">{{ summary.active_agents }}</div><div class="label">Active Agents</div></div>
-        <div class="summary-card"><div class="value">{{ summary.jobs_today }}</div><div class="label">Searches Today</div></div>
-        <div class="summary-card"><div class="value">{{ summary.calls_today }}</div><div class="label">Calls Today</div></div>
+        <div class="summary-card"><div class="value">{{ summary.jobs_today }}</div><div class="label">Searches Today (PKT)</div></div>
+        <div class="summary-card"><div class="value">{{ summary.calls_today }}</div><div class="label">Calls Today (PKT)</div></div>
     </div>
+    <p style="text-align:center; margin-top:1em;"><a href="{{ url_for('admin.call_stats') }}">View full call activity breakdown by agent →</a></p>
 </div>
 
 <div class="card">

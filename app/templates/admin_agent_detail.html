@@ -13,6 +13,16 @@
 </div>
 
 <div class="card">
+    <h2>Call Activity (Pakistan Time)</h2>
+    <div class="summary-cards">
+        <div class="summary-card"><div class="value">{{ call_stats.today.total }}</div><div class="label">Today</div></div>
+        <div class="summary-card"><div class="value">{{ call_stats.week.total }}</div><div class="label">Last 7 Days</div></div>
+        <div class="summary-card"><div class="value">{{ call_stats.all_time.total }}</div><div class="label">All Time</div></div>
+        <div class="summary-card"><div class="value">{{ call_stats.all_time.interested }}</div><div class="label">Interested (All Time)</div></div>
+    </div>
+</div>
+
+<div class="card">
     <h2>Search History</h2>
     {% if jobs %}
     <div class="table-scroll">

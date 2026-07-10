@@ -14,6 +14,7 @@
             {% if g.user.role == 'admin' %}
                 <a href="{{ url_for('admin.dashboard') }}" data-path="/admin">Dashboard</a>
                 <a href="{{ url_for('admin.agents') }}" data-path="/admin/agents">Agents</a>
+                <a href="{{ url_for('admin.call_stats') }}" data-path="/admin/call-stats">Call Activity</a>
                 <a href="{{ url_for('admin.calls') }}" data-path="/admin/calls">Call Log</a>
                 <a href="{{ url_for('admin.list_files') }}" data-path="/admin/files">Legacy CSVs</a>
             {% endif %}
