@@ -87,7 +87,7 @@
 
     window.markCalled = function(el, leadId) {
         el.classList.add('called');
-        fetch(`/leads/${leadId}/call`, { method: 'POST' }).catch(() => {});
+        fetch(apiUrl(`/leads/${leadId}/call`), { method: 'POST' }).catch(() => {});
     };
 
     function leadRowHtml(lead) {
@@ -111,7 +111,7 @@
 
     function setOpenQueueLink(jobId) {
         if (!jobId) { openQueueLink.style.display = 'none'; return; }
-        openQueueLink.href = `/queue?job_id=${jobId}`;
+        openQueueLink.href = apiUrl(`/queue?job_id=${jobId}`);
         openQueueLink.style.display = 'inline-block';
     }
 
@@ -134,7 +134,7 @@
         submitBtn.textContent = 'Running...';
 
         try {
-            const response = await fetch('/search', { method: 'POST', body: new FormData(form) });
+            const response = await fetch(apiUrl('/search'), { method: 'POST', body: new FormData(form) });
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || 'Failed to start job');
             localStorage.setItem(ACTIVE_JOB_KEY, data.job_id);
@@ -155,7 +155,7 @@
 
     async function tick(jobId) {
         try {
-            const res = await fetch(`/search/${jobId}/status`);
+            const res = await fetch(apiUrl(`/search/${jobId}/status`));
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Job not found');
             updateProgress(data);
@@ -173,7 +173,7 @@
     }
 
     async function fetchNewLeads(jobId) {
-        const res = await fetch(`/search/${jobId}/leads?after_id=${lastSeenLeadId}`);
+        const res = await fetch(apiUrl(`/search/${jobId}/leads?after_id=${lastSeenLeadId}`));
         if (!res.ok) return;
         const leads = await res.json();
         if (!leads.length) return;
@@ -189,7 +189,7 @@
         const jobId = localStorage.getItem(ACTIVE_JOB_KEY);
         if (jobId) {
             try {
-                const res = await fetch(`/search/${jobId}/status`);
+                const res = await fetch(apiUrl(`/search/${jobId}/status`));
                 if (!res.ok) { localStorage.removeItem(ACTIVE_JOB_KEY); }
                 else {
                     const data = await res.json();
@@ -224,7 +224,7 @@
         lastSeenLeadId = 0;
         resultsTbody.innerHTML = '';
         try {
-            const res = await fetch(`/search/${jobId}/status`);
+            const res = await fetch(apiUrl(`/search/${jobId}/status`));
             if (!res.ok) return;
             const data = await res.json();
             resultsSection.style.display = 'block';

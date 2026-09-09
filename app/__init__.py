@@ -22,6 +22,14 @@ if url_prefix:
 
     app.wsgi_app = _prefix_script_name
 
+
+@app.context_processor
+def inject_url_prefix():
+    # Exposed as window.URL_PREFIX (see base.html) so client-side fetch()
+    # calls can route through the same proxy prefix as server-rendered links.
+    return {'url_prefix': url_prefix}
+
+
 secret_key = os.environ.get('FLASK_SECRET_KEY')
 if not secret_key:
     raise RuntimeError('FLASK_SECRET_KEY environment variable not set. Please set it in your environment.')

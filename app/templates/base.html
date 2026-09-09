@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}FMCSA Lead Manager{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script>window.URL_PREFIX = {{ url_prefix | tojson }};</script>
     <script src="{{ url_for('static', filename='app.js') }}"></script>
 </head>
 <body>
@@ -31,7 +32,7 @@
     </nav>
     <script>
         document.querySelectorAll('.navbar a[data-path]').forEach(function(a) {
-            if (window.location.pathname === a.dataset.path) a.classList.add('active');
+            if (window.location.pathname === apiUrl(a.dataset.path)) a.classList.add('active');
         });
     </script>
     {% endif %}

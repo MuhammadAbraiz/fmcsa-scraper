@@ -29,7 +29,7 @@
         body.innerHTML = '<div class="drawer-loading">Loading...</div>';
         drawerCallId = null;
         try {
-            const res = await fetch(`/api/leads/${leadId}`);
+            const res = await fetch(apiUrl(`/api/leads/${leadId}`));
             const lead = await res.json();
             if (!res.ok) throw new Error(lead.error || 'Not found');
             renderDrawer(lead);
@@ -84,7 +84,7 @@
             </div>
             <h2 style="margin-top:1.8em;">Call History</h2>
             ${callsHtml}
-            <a href="/leads/${lead.id}" class="btn-secondary btn-small" style="margin-top:1em; display:inline-block;">Open full page</a>
+            <a href="${apiUrl(`/leads/${lead.id}`)}" class="btn-secondary btn-small" style="margin-top:1em; display:inline-block;">Open full page</a>
         `;
 
         const callBtn = document.getElementById('drawer-call-btn');
@@ -93,7 +93,7 @@
             callBtn.addEventListener('click', async () => {
                 callBtn.classList.add('called');
                 try {
-                    const res = await fetch(`/leads/${lead.id}/call`, { method: 'POST' });
+                    const res = await fetch(apiUrl(`/leads/${lead.id}/call`), { method: 'POST' });
                     const data = await res.json();
                     drawerCallId = data.call_id;
                     outcomePanel.style.display = 'block';
@@ -113,7 +113,7 @@
             const formBody = new FormData();
             formBody.append('outcome', window.drawerSelectedOutcome);
             formBody.append('note', note);
-            const res = await fetch(`/calls/${drawerCallId}/outcome`, { method: 'POST', body: formBody });
+            const res = await fetch(apiUrl(`/calls/${drawerCallId}/outcome`), { method: 'POST', body: formBody });
             if (res.ok) {
                 document.getElementById('drawer-outcome-saved').style.display = 'block';
             }

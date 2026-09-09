@@ -74,7 +74,7 @@
         callBtn.addEventListener('click', async () => {
             callBtn.classList.add('called');
             try {
-                const res = await fetch('/leads/{{ lead.id }}/call', { method: 'POST' });
+                const res = await fetch(apiUrl('/leads/{{ lead.id }}/call'), { method: 'POST' });
                 const data = await res.json();
                 currentCallId = data.call_id;
                 outcomePanel.style.display = 'block';
@@ -95,7 +95,7 @@
         const body = new FormData();
         body.append('outcome', selectedOutcome);
         body.append('note', note);
-        const res = await fetch(`/calls/${currentCallId}/outcome`, { method: 'POST', body });
+        const res = await fetch(apiUrl(`/calls/${currentCallId}/outcome`), { method: 'POST', body });
         if (res.ok) {
             document.getElementById('outcome-saved').style.display = 'block';
             setTimeout(() => window.location.reload(), 800);

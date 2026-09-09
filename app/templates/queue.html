@@ -119,7 +119,7 @@
     }
 
     async function fetchBatch() {
-        const res = await fetch(`/queue/leads?${buildParams().toString()}`);
+        const res = await fetch(apiUrl(`/queue/leads?${buildParams().toString()}`));
         return await res.json();
     }
 
@@ -204,7 +204,7 @@
         if (!lead || currentCallId) return;
         callBtn.classList.add('called');
         try {
-            const res = await fetch(`/leads/${lead.id}/call`, { method: 'POST' });
+            const res = await fetch(apiUrl(`/leads/${lead.id}/call`), { method: 'POST' });
             const data = await res.json();
             currentCallId = data.call_id;
             outcomePanel.style.display = 'block';
@@ -237,7 +237,7 @@
         const body = new FormData();
         body.append('outcome', outcome);
         body.append('note', note);
-        await fetch(`/calls/${currentCallId}/outcome`, { method: 'POST', body });
+        await fetch(apiUrl(`/calls/${currentCallId}/outcome`), { method: 'POST', body });
         totalRemaining = Math.max(0, totalRemaining - 1);
         setTimeout(() => { index += 1; render(); }, 350);
     });

@@ -55,7 +55,7 @@
     }
 
     function agentRowHtml(agent) {
-        let cells = `<td><a href="/admin/agents/${agent.agent_id}">${escapeHtml(agent.full_name || agent.username)}</a></td><td><strong>${agent.total}</strong></td>`;
+        let cells = `<td><a href="${apiUrl(`/admin/agents/${agent.agent_id}`)}">${escapeHtml(agent.full_name || agent.username)}</a></td><td><strong>${agent.total}</strong></td>`;
         outcomeKeys.forEach(key => {
             cells += `<td>${agent[key] || 0}</td>`;
         });
@@ -74,8 +74,8 @@
             : periodLabels[period];
 
         const url = customDate
-            ? `/admin/api/call-stats?date=${customDate}`
-            : `/admin/api/call-stats?period=${period}`;
+            ? apiUrl(`/admin/api/call-stats?date=${customDate}`)
+            : apiUrl(`/admin/api/call-stats?period=${period}`);
 
         try {
             const res = await fetch(url);

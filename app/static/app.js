@@ -15,3 +15,15 @@ function escapeHtml(value) {
         .replace(/'/g, '&#39;');
 }
 window.escapeHtml = escapeHtml;
+
+// When deployed behind a reverse proxy that mounts the app under a sub-path
+// and strips that prefix before forwarding (see URL_PREFIX in
+// app/__init__.py), a hardcoded '/search' etc. in a fetch() call resolves
+// relative to the domain root, not the mounted path — bypassing the proxy's
+// routing entirely and hitting whatever else is mounted at '/'. Every
+// same-origin fetch() in this app must go through this helper instead of a
+// bare string literal.
+function apiUrl(path) {
+    return (window.URL_PREFIX || '') + path;
+}
+window.apiUrl = apiUrl;
