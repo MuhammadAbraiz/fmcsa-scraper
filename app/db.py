@@ -1,48 +1,48 @@
 import os
-import sqlite3
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DB_PATH = os.path.join(BASE_DIR, 'app.db')
+import pymysql
+import pymysql.cursors
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT NOT NULL UNIQUE,
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    username VARCHAR(191) NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
-    role TEXT NOT NULL CHECK (role IN ('admin', 'agent')),
+    role ENUM('admin', 'agent') NOT NULL,
     full_name TEXT,
-    is_active INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS search_jobs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    job_uuid TEXT NOT NULL UNIQUE,
-    agent_id INTEGER NOT NULL REFERENCES users(id),
-    start_mc INTEGER NOT NULL,
-    end_mc INTEGER NOT NULL,
-    status TEXT NOT NULL DEFAULT 'running',
-    processed INTEGER NOT NULL DEFAULT 0,
-    total INTEGER NOT NULL DEFAULT 0,
-    found INTEGER NOT NULL DEFAULT 0,
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    job_uuid VARCHAR(64) NOT NULL UNIQUE,
+    agent_id INT NOT NULL,
+    start_mc INT NOT NULL,
+    end_mc INT NOT NULL,
+    status VARCHAR(16) NOT NULL DEFAULT 'running',
+    processed INT NOT NULL DEFAULT 0,
+    total INT NOT NULL DEFAULT 0,
+    found INT NOT NULL DEFAULT 0,
     message TEXT,
-    started_at TEXT NOT NULL DEFAULT (datetime('now')),
-    finished_at TEXT
+    started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    finished_at DATETIME,
+    FOREIGN KEY (agent_id) REFERENCES users(id)
 );
-CREATE INDEX IF NOT EXISTS idx_search_jobs_agent ON search_jobs(agent_id);
+CREATE INDEX idx_search_jobs_agent ON search_jobs(agent_id);
 
 CREATE TABLE IF NOT EXISTS leads (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    usdot TEXT NOT NULL UNIQUE,
-    mc_number INTEGER,
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    usdot VARCHAR(64) NOT NULL UNIQUE,
+    mc_number INT,
     legal_name TEXT,
     mc_mx_ff_numbers TEXT,
     entity_type TEXT,
     address TEXT,
     phone TEXT,
     email TEXT,
-    power_units INTEGER,
-    drivers INTEGER,
+    power_units INT,
+    drivers INT,
     mcs_150_form_date TEXT,
     mcs_150_mileage TEXT,
     mcs_150_mileage_year TEXT,
@@ -52,41 +52,91 @@ CREATE TABLE IF NOT EXISTS leads (
     carrier_operation TEXT,
     cargo_carried TEXT,
     likely_equipment TEXT,
-    first_found_job_id INTEGER REFERENCES search_jobs(id),
-    first_found_by_agent_id INTEGER REFERENCES users(id),
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    first_found_job_id INT,
+    first_found_by_agent_id INT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (first_found_job_id) REFERENCES search_jobs(id),
+    FOREIGN KEY (first_found_by_agent_id) REFERENCES users(id)
 );
-CREATE INDEX IF NOT EXISTS idx_leads_mc_number ON leads(mc_number);
-CREATE INDEX IF NOT EXISTS idx_leads_first_found_job ON leads(first_found_job_id);
+CREATE INDEX idx_leads_mc_number ON leads(mc_number);
+CREATE INDEX idx_leads_first_found_job ON leads(first_found_job_id);
 
 CREATE TABLE IF NOT EXISTS call_logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    lead_id INTEGER NOT NULL REFERENCES leads(id),
-    agent_id INTEGER NOT NULL REFERENCES users(id),
-    called_at TEXT NOT NULL DEFAULT (datetime('now')),
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    lead_id INT NOT NULL,
+    agent_id INT NOT NULL,
+    called_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     outcome TEXT,
     note TEXT,
-    updated_at TEXT
+    updated_at DATETIME,
+    FOREIGN KEY (lead_id) REFERENCES leads(id),
+    FOREIGN KEY (agent_id) REFERENCES users(id)
 );
-CREATE INDEX IF NOT EXISTS idx_call_logs_agent ON call_logs(agent_id);
-CREATE INDEX IF NOT EXISTS idx_call_logs_lead ON call_logs(lead_id);
+CREATE INDEX idx_call_logs_agent ON call_logs(agent_id);
+CREATE INDEX idx_call_logs_lead ON call_logs(lead_id);
 """
+
+DB_CONFIG = dict(
+    host=os.environ.get('DB_HOST', '127.0.0.1'),
+    port=int(os.environ.get('DB_PORT', '3306')),
+    user=os.environ.get('DB_USER', ''),
+    password=os.environ.get('DB_PASSWORD', ''),
+    database=os.environ.get('DB_NAME', ''),
+    cursorclass=pymysql.cursors.DictCursor,
+    autocommit=False,
+)
+
+
+class Connection:
+    """Thin wrapper so callers can keep using sqlite3-style conn.execute(sql, params)
+    with '?' placeholders, instead of rewriting every call site for pymysql."""
+
+    def __init__(self, raw):
+        self._raw = raw
+
+    def execute(self, sql, params=()):
+        cur = self._raw.cursor()
+        cur.execute(sql.replace('?', '%s'), params)
+        return cur
+
+    def commit(self):
+        self._raw.commit()
+
+    def close(self):
+        self._raw.close()
+
+
+def _connect():
+    # Force UTC regardless of the server's configured timezone: historical
+    # data was migrated in from SQLite's always-UTC datetime('now'), and the
+    # shift-date math (models._shift_date_expr) assumes NOW()/CURRENT_TIMESTAMP
+    # and stored timestamps share one consistent baseline.
+    raw = pymysql.connect(**DB_CONFIG)
+    raw.cursor().execute("SET time_zone = '+00:00'")
+    return raw
 
 
 def get_connection():
-    conn = sqlite3.connect(DB_PATH, timeout=5)
-    conn.row_factory = sqlite3.Row
-    conn.execute('PRAGMA journal_mode=WAL')
-    conn.execute('PRAGMA busy_timeout=5000')
-    conn.execute('PRAGMA foreign_keys=ON')
-    return conn
+    return Connection(_connect())
+
+
+DUPLICATE_KEY_NAME = 1061  # ER_DUP_KEYNAME: CREATE INDEX has no IF NOT EXISTS in MySQL
 
 
 def init_db():
-    conn = get_connection()
+    conn = _connect()
     try:
-        conn.executescript(SCHEMA)
+        cur = conn.cursor()
+        for statement in SCHEMA.split(';'):
+            statement = statement.strip()
+            if not statement:
+                continue
+            try:
+                cur.execute(statement)
+            except pymysql.err.OperationalError as e:
+                if e.args[0] != DUPLICATE_KEY_NAME:
+                    raise
         conn.commit()
     finally:
         conn.close()
