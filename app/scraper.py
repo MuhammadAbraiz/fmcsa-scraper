@@ -176,7 +176,15 @@ def extract_data(data):
     return None
 
 
-SCRAPE_WORKERS = 10
+# Two decoupled pools instead of one: SAFER lookups are fast JSON calls, but
+# a match also needs a slower FMCSA email-page scrape. Running both in a
+# single pool meant a match tied up a lookup worker for 1+ second doing
+# nothing but the email fetch, stalling everyone else's turn through that
+# worker. Splitting them means the lookup pool keeps churning through MC
+# numbers at full speed regardless of how many matches (and pending email
+# scrapes) are in flight.
+LOOKUP_WORKERS = 15
+EMAIL_WORKERS = 5
 
 
 def run_scrape_job(job_id, start_mc, end_mc, agent_id):
@@ -190,37 +198,47 @@ def run_scrape_job(job_id, start_mc, end_mc, agent_id):
         carrier_data = extract_data(fetch_mc_data(mc_number))
         if carrier_data:
             carrier_data['mc_number'] = mc_number
-            carrier_data['email'] = scrape_carrier_email(carrier_data.get('usdot'))
-            time.sleep(1)  # be polite to FMCSA's site; only matches hit this page
         return carrier_data
 
     counters = {'processed': 0, 'found': 0, 'last_write': 0.0}
 
-    def handle_result(carrier_data):
-        counters['processed'] += 1
-        if carrier_data:
-            lead_row = models.upsert_lead(carrier_data, job_row_id, agent_id)
-            if lead_row:
-                counters['found'] += 1
-            # else: match had no usdot to dedupe on — still counted in processed, not in found
-
+    def write_progress(force=False):
         now = time.monotonic()
-        is_last = counters['processed'] == total
-        if carrier_data is not None or is_last or now - counters['last_write'] >= 1.0:
+        if force or now - counters['last_write'] >= 1.0:
             counters['last_write'] = now
             write_job(job_id, processed=counters['processed'], found=counters['found'])
             models.update_search_job(job_id, processed=counters['processed'], found=counters['found'])
 
+    def finish_match(carrier_data):
+        """Runs in the email pool: slow FMCSA scrape + DB upsert for one match."""
+        carrier_data['email'] = scrape_carrier_email(carrier_data.get('usdot'))
+        time.sleep(1)  # be polite to FMCSA's site; only matches hit this page
+        lead_row = models.upsert_lead(carrier_data, job_row_id, agent_id)
+        if lead_row:
+            counters['found'] += 1
+        write_progress()
+
     try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=SCRAPE_WORKERS) as executor:
-            futures = [executor.submit(process_mc, mc) for mc in range(start_mc, end_mc + 1)]
-            for future in concurrent.futures.as_completed(futures):
-                handle_result(future.result())
+        with concurrent.futures.ThreadPoolExecutor(max_workers=EMAIL_WORKERS) as email_pool, \
+             concurrent.futures.ThreadPoolExecutor(max_workers=LOOKUP_WORKERS) as lookup_pool:
+
+            lookup_futures = [lookup_pool.submit(process_mc, mc) for mc in range(start_mc, end_mc + 1)]
+            email_futures = []
+            for future in concurrent.futures.as_completed(lookup_futures):
+                carrier_data = future.result()
+                counters['processed'] += 1
+                if carrier_data:
+                    email_futures.append(email_pool.submit(finish_match, carrier_data))
+                write_progress(force=(counters['processed'] == total))
+
+            for future in concurrent.futures.as_completed(email_futures):
+                future.result()
     except Exception as e:
         write_job(job_id, status='error', message=f'Scrape failed: {e}')
         models.update_search_job(job_id, status='error', message=f'Scrape failed: {e}')
         return
 
+    write_progress(force=True)
     found = counters['found']
     message = 'No valid data found matching the criteria.' if found == 0 else f'Found {found} matching carrier(s).'
     write_job(job_id, status='done', message=message)
