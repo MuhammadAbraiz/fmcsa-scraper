@@ -7,6 +7,21 @@ load_dotenv()
 
 app = Flask(__name__)
 
+# When deployed behind a reverse proxy that mounts this app under a sub-path
+# and strips that prefix before forwarding (e.g. `tailscale serve --set-path`),
+# url_for()/redirects need to know the prefix to generate links the proxy can
+# route back correctly. Set URL_PREFIX (e.g. "/fmcsa") only on deployments
+# that need it; unset (the common case) leaves the app mounted at root.
+url_prefix = os.environ.get('URL_PREFIX', '').rstrip('/')
+if url_prefix:
+    _wsgi_app = app.wsgi_app
+
+    def _prefix_script_name(environ, start_response):
+        environ['SCRIPT_NAME'] = url_prefix
+        return _wsgi_app(environ, start_response)
+
+    app.wsgi_app = _prefix_script_name
+
 secret_key = os.environ.get('FLASK_SECRET_KEY')
 if not secret_key:
     raise RuntimeError('FLASK_SECRET_KEY environment variable not set. Please set it in your environment.')
