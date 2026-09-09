@@ -1,4 +1,6 @@
 import os
+import queue
+import threading
 
 import pymysql
 import pymysql.cursors
@@ -104,21 +106,62 @@ class Connection:
         self._raw.commit()
 
     def close(self):
-        self._raw.close()
+        _release(self._raw)
+
+
+def _set_utc(raw):
+    raw.cursor().execute("SET time_zone = '+00:00'")
 
 
 def _connect():
+    raw = pymysql.connect(**DB_CONFIG)
     # Force UTC regardless of the server's configured timezone: historical
     # data was migrated in from SQLite's always-UTC datetime('now'), and the
     # shift-date math (models._shift_date_expr) assumes NOW()/CURRENT_TIMESTAMP
     # and stored timestamps share one consistent baseline.
-    raw = pymysql.connect(**DB_CONFIG)
-    raw.cursor().execute("SET time_zone = '+00:00'")
+    _set_utc(raw)
     return raw
 
 
+# Every model-layer call used to open (and immediately close) its own fresh
+# TCP+auth connection. That's cheap locally but hosted MySQL providers meter
+# new connections per hour per DB user (Hostinger: 500/hr) - a single bulk
+# operation of a few hundred rows was enough to exhaust it and take the
+# whole app down, since every other request needs a connection too. Pool a
+# small number of long-lived connections instead, reused across calls.
+POOL_SIZE = int(os.environ.get('DB_POOL_SIZE', '5'))
+_pool = queue.Queue(maxsize=POOL_SIZE)
+_pool_lock = threading.Lock()
+_created = 0
+
+
+def _acquire():
+    global _created
+    try:
+        raw = _pool.get_nowait()
+    except queue.Empty:
+        with _pool_lock:
+            if _created < POOL_SIZE:
+                _created += 1
+                return _connect()
+        raw = _pool.get()  # at capacity: block until one is released
+    try:
+        raw.ping(reconnect=True)  # may silently reconnect if the server dropped it
+        _set_utc(raw)  # reconnect resets the session, so timezone must be re-applied
+    except Exception:
+        raw = _connect()
+    return raw
+
+
+def _release(raw):
+    try:
+        _pool.put_nowait(raw)
+    except queue.Full:
+        raw.close()
+
+
 def get_connection():
-    return Connection(_connect())
+    return Connection(_acquire())
 
 
 DUPLICATE_KEY_NAME = 1061  # ER_DUP_KEYNAME: CREATE INDEX has no IF NOT EXISTS in MySQL
