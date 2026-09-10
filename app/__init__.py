@@ -2,10 +2,20 @@ import os
 
 from dotenv import load_dotenv
 from flask import Flask, g, redirect, url_for
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 load_dotenv()
 
 app = Flask(__name__)
+
+# gunicorn only ever sees 127.0.0.1 as the raw TCP peer - every request
+# arrives via a reverse proxy on the same box (nginx for the public domain,
+# tailscale serve for the tailnet). Without this, request.remote_addr is
+# always 127.0.0.1, which would make IP-based login rate limiting useless
+# (or worse, lock everyone out together). Trust exactly one proxy hop's
+# X-Forwarded-For/X-Forwarded-Proto, matching the single reverse proxy each
+# request actually passes through.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 
 # When deployed behind a reverse proxy that mounts this app under a sub-path
 # and strips that prefix before forwarding (e.g. `tailscale serve --set-path`),

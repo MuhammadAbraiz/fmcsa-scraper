@@ -87,6 +87,66 @@ def set_user_password(user_id, new_password):
         conn.close()
 
 
+# --- login rate limiting ---
+#
+# The app is now reachable from the public internet (not just the tailnet),
+# so an unlimited login form is an open door for credential-stuffing bots.
+# Tracked per (username, IP) pair rather than just IP, so one attacker
+# working through a list of usernames from a single IP is caught by the IP
+# limit, while a distributed attack hammering one specific username from many
+# IPs is caught by the username limit.
+
+LOGIN_ATTEMPT_WINDOW_MINUTES = 15
+MAX_ATTEMPTS_PER_USERNAME = 5
+MAX_ATTEMPTS_PER_IP = 20
+
+
+def record_failed_login(username, ip_address):
+    conn = get_connection()
+    try:
+        conn.execute(
+            'INSERT INTO login_attempts (username, ip_address) VALUES (?, ?)',
+            (username, ip_address),
+        )
+        # Opportunistic cleanup instead of a cron job - keeps the table from
+        # growing unbounded under sustained bot noise, without adding a
+        # scheduling dependency for a table that's naturally self-limiting.
+        conn.execute(
+            f"DELETE FROM login_attempts WHERE attempted_at < NOW() - INTERVAL {LOGIN_ATTEMPT_WINDOW_MINUTES * 4} MINUTE",
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def clear_failed_logins(username):
+    conn = get_connection()
+    try:
+        conn.execute('DELETE FROM login_attempts WHERE username = ?', (username,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def is_login_rate_limited(username, ip_address):
+    conn = get_connection()
+    try:
+        window = f'NOW() - INTERVAL {LOGIN_ATTEMPT_WINDOW_MINUTES} MINUTE'
+        by_username = conn.execute(
+            f'SELECT COUNT(*) AS cnt FROM login_attempts WHERE username = ? AND attempted_at >= {window}',
+            (username,),
+        ).fetchone()['cnt']
+        if by_username >= MAX_ATTEMPTS_PER_USERNAME:
+            return True
+        by_ip = conn.execute(
+            f'SELECT COUNT(*) AS cnt FROM login_attempts WHERE ip_address = ? AND attempted_at >= {window}',
+            (ip_address,),
+        ).fetchone()['cnt']
+        return by_ip >= MAX_ATTEMPTS_PER_IP
+    finally:
+        conn.close()
+
+
 # --- search jobs ---
 
 def create_search_job(job_uuid, agent_id, start_mc, end_mc, total):

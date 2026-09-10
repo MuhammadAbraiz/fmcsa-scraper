@@ -77,6 +77,15 @@ CREATE TABLE IF NOT EXISTS call_logs (
 );
 CREATE INDEX idx_call_logs_agent ON call_logs(agent_id);
 CREATE INDEX idx_call_logs_lead ON call_logs(lead_id);
+
+CREATE TABLE IF NOT EXISTS login_attempts (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    username VARCHAR(191) NOT NULL,
+    ip_address VARCHAR(45) NOT NULL,
+    attempted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_login_attempts_username ON login_attempts(username, attempted_at);
+CREATE INDEX idx_login_attempts_ip ON login_attempts(ip_address, attempted_at);
 """
 
 DB_CONFIG = dict(

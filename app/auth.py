@@ -62,11 +62,20 @@ def login():
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '')
+        ip_address = request.remote_addr or ''
+
+        if models.is_login_rate_limited(username, ip_address):
+            return render_template(
+                'login.html', error='Too many failed attempts. Try again in a few minutes.',
+            )
+
         user = models.verify_login(username, password)
         if user is None:
+            models.record_failed_login(username, ip_address)
             return render_template('login.html', error='Invalid username or password.')
         if not user['is_active']:
             return render_template('login.html', error='This account has been deactivated.')
+        models.clear_failed_logins(username)
         session.clear()
         session['user_id'] = user['id']
         next_path = request.args.get('next') or request.form.get('next')
