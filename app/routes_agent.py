@@ -18,16 +18,45 @@ def _csv_safe(value):
     return text
 
 
+def _resolve_job_filter(job_id_param, persist_for_agent_id=None):
+    """job_id_param: the raw ?job_id= value - a job_uuid, the sentinel 'all'
+    (explicitly no folder scope), or missing/empty (use the agent's stored
+    preference). Returns a job_row_id (int) or None (no scope).
+
+    When persist_for_agent_id is given, an *explicit* choice ('all' or a real
+    job_uuid) is saved as that agent's new active folder, so picking a
+    folder once means it's still selected on their next visit - a still-
+    unset param leaves the stored preference untouched rather than clearing it.
+    """
+    if job_id_param == 'all':
+        if persist_for_agent_id is not None:
+            models.set_active_folder(persist_for_agent_id, None)
+        return None
+    if job_id_param:
+        job = models.get_search_job(job_id_param)
+        job_row_id = job['id'] if job else None
+        if persist_for_agent_id is not None:
+            models.set_active_folder(persist_for_agent_id, job_row_id)
+        return job_row_id
+    return g.user.get('active_folder_id')
+
+
 @bp.route('/portal')
 @login_required
 def portal():
-    recent_jobs = models.list_search_jobs(agent_id=g.user['id'], limit=8)
-    return render_template('agent_portal.html', recent_jobs=recent_jobs, outcomes=models.CALL_OUTCOMES)
+    folders = models.list_search_jobs(agent_id=g.user['id'], limit=20)
+    return render_template(
+        'agent_portal.html', recent_jobs=folders, folders=folders,
+        active_folder_id=g.user.get('active_folder_id'), outcomes=models.CALL_OUTCOMES,
+    )
 
 
 @bp.route('/search', methods=['POST'])
 @api_login_required
 def start_search():
+    name = request.form.get('name', '').strip()
+    if not name:
+        return jsonify({'error': 'Folder name is required.'}), 400
     try:
         start_mc = int(request.form.get('start_mc', ''))
         end_mc = int(request.form.get('end_mc', ''))
@@ -37,8 +66,16 @@ def start_search():
     if end_mc < start_mc:
         return jsonify({'error': 'End MC number must be greater than or equal to start MC number.'}), 400
 
-    job_id = scraper.start_scrape_job(start_mc, end_mc, g.user['id'])
+    job_id = scraper.start_scrape_job(start_mc, end_mc, g.user['id'], name=name)
     return jsonify({'job_id': job_id})
+
+
+@bp.route('/account/active-folder', methods=['POST'])
+@api_login_required
+def update_active_folder():
+    job_id_param = request.form.get('job_id', '')
+    job_row_id = _resolve_job_filter(job_id_param, persist_for_agent_id=g.user['id'])
+    return jsonify({'ok': True, 'active_folder_id': job_row_id})
 
 
 @bp.route('/search/<job_id>/status')
@@ -64,7 +101,13 @@ def search_leads(job_id):
 @bp.route('/leads')
 @login_required
 def leads_page():
-    return render_template('leads.html', equipment_filters=models.EQUIPMENT_FILTERS, outcomes=models.CALL_OUTCOMES)
+    active_folder_id = g.user.get('active_folder_id')
+    active_job = models.get_search_job_by_id(active_folder_id) if active_folder_id else None
+    return render_template(
+        'leads.html', equipment_filters=models.EQUIPMENT_FILTERS, outcomes=models.CALL_OUTCOMES,
+        folders=models.list_search_jobs(agent_id=g.user['id'], limit=50),
+        active_job=active_job, active_filters=models.get_active_filters(g.user['id']),
+    )
 
 
 PAGE_SIZE = 500
@@ -79,9 +122,12 @@ def api_leads_list():
     mc_max = request.args.get('mc_max', type=int)
     page = max(1, request.args.get('page', 1, type=int))
     offset = (page - 1) * PAGE_SIZE
+    job_row_id = _resolve_job_filter(request.args.get('job_id', ''), persist_for_agent_id=g.user['id'])
+    models.set_active_filters(g.user['id'], {'q': q, 'equipment': equipment, 'mc_min': mc_min, 'mc_max': mc_max})
 
-    leads = models.list_leads(q=q, equipment=equipment, mc_min=mc_min, mc_max=mc_max, limit=PAGE_SIZE, offset=offset)
-    total = models.count_leads(q=q, equipment=equipment, mc_min=mc_min, mc_max=mc_max)
+    filters = dict(q=q, equipment=equipment, mc_min=mc_min, mc_max=mc_max, job_row_id=job_row_id)
+    leads = models.list_leads(**filters, limit=PAGE_SIZE, offset=offset)
+    total = models.count_leads(**filters)
     return jsonify({'leads': leads, 'total': total, 'page': page, 'page_size': PAGE_SIZE})
 
 
@@ -98,12 +144,13 @@ def api_lead_detail(lead_id):
 @bp.route('/queue')
 @login_required
 def call_queue():
-    job = None
-    job_id = request.args.get('job_id')
-    if job_id:
-        job = models.get_search_job(job_id)
-    return render_template('queue.html', outcomes=models.CALL_OUTCOMES,
-                            equipment_filters=models.EQUIPMENT_FILTERS, job=job)
+    job_row_id = _resolve_job_filter(request.args.get('job_id', ''), persist_for_agent_id=g.user['id'])
+    job = models.get_search_job_by_id(job_row_id) if job_row_id else None
+    return render_template(
+        'queue.html', outcomes=models.CALL_OUTCOMES, equipment_filters=models.EQUIPMENT_FILTERS, job=job,
+        folders=models.list_search_jobs(agent_id=g.user['id'], limit=50),
+        active_filters=models.get_active_filters(g.user['id']),
+    )
 
 
 @bp.route('/queue/leads')
@@ -113,13 +160,12 @@ def queue_leads():
     equipment = request.args.get('equipment') or None
     mc_min = request.args.get('mc_min', type=int)
     mc_max = request.args.get('mc_max', type=int)
-    job_row_id = None
-    job_id = request.args.get('job_id')
-    if job_id:
-        job = models.get_search_job(job_id)
-        if job is None:
-            return jsonify({'error': 'Job not found'}), 404
-        job_row_id = job['id']
+    models.set_active_filters(g.user['id'], {'q': q, 'equipment': equipment, 'mc_min': mc_min, 'mc_max': mc_max})
+
+    job_id_param = request.args.get('job_id', '')
+    if job_id_param and job_id_param != 'all' and models.get_search_job(job_id_param) is None:
+        return jsonify({'error': 'Job not found'}), 404
+    job_row_id = _resolve_job_filter(job_id_param, persist_for_agent_id=g.user['id'])
 
     filters = dict(q=q, equipment=equipment, mc_min=mc_min, mc_max=mc_max, job_row_id=job_row_id)
     return jsonify({

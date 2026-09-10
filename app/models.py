@@ -1,3 +1,4 @@
+import json
 import time
 
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -170,12 +171,12 @@ def is_login_rate_limited(username, ip_address):
 
 # --- search jobs ---
 
-def create_search_job(job_uuid, agent_id, start_mc, end_mc, total):
+def create_search_job(job_uuid, agent_id, start_mc, end_mc, total, name=None):
     conn = get_connection()
     try:
         cur = conn.execute(
-            'INSERT INTO search_jobs (job_uuid, agent_id, start_mc, end_mc, total) VALUES (?, ?, ?, ?, ?)',
-            (job_uuid, agent_id, start_mc, end_mc, total),
+            'INSERT INTO search_jobs (job_uuid, agent_id, start_mc, end_mc, total, name) VALUES (?, ?, ?, ?, ?, ?)',
+            (job_uuid, agent_id, start_mc, end_mc, total, name),
         )
         conn.commit()
         return cur.lastrowid
@@ -211,6 +212,20 @@ def get_search_job(job_uuid):
         conn.close()
 
 
+def get_search_job_by_id(job_row_id):
+    """Like get_search_job() but keyed on the int primary key - needed for
+    users.active_folder_id, which stores that id rather than the job_uuid
+    (job_uuid identifies a job to the scrape-progress-polling frontend;
+    active_folder_id is an internal FK, no reason to expose/round-trip the
+    uuid for it)."""
+    conn = get_connection()
+    try:
+        row = conn.execute('SELECT * FROM search_jobs WHERE id = ?', (job_row_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
 def list_search_jobs(agent_id=None, limit=50):
     conn = get_connection()
     try:
@@ -229,6 +244,46 @@ def list_search_jobs(agent_id=None, limit=50):
                 (limit,),
             ).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def set_active_folder(user_id, job_row_id):
+    conn = get_connection()
+    try:
+        conn.execute('UPDATE users SET active_folder_id = ? WHERE id = ?', (job_row_id, user_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def set_active_filters(user_id, filters):
+    """filters: dict of q/equipment/mc_min/mc_max, stored as JSON so the agent's
+    last-used filters can be restored without re-typing them each visit."""
+    conn = get_connection()
+    try:
+        conn.execute(
+            'UPDATE users SET active_filters = ? WHERE id = ?',
+            (json.dumps(filters), user_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_active_filters(user_id):
+    """Returns the {q, equipment, mc_min, mc_max} dict saved by set_active_filters(),
+    or an all-None dict if the agent has none saved yet (or it's malformed)."""
+    empty = {'q': None, 'equipment': None, 'mc_min': None, 'mc_max': None}
+    conn = get_connection()
+    try:
+        row = conn.execute('SELECT active_filters FROM users WHERE id = ?', (user_id,)).fetchone()
+        if not row or not row['active_filters']:
+            return empty
+        try:
+            return {**empty, **json.loads(row['active_filters'])}
+        except (ValueError, TypeError):
+            return empty
     finally:
         conn.close()
 
@@ -270,9 +325,12 @@ def upsert_lead(fields, job_row_id, agent_id):
 EQUIPMENT_FILTERS = ['Dry Van', 'Reefer', 'Flatbed', 'Box Truck', 'Unknown']
 
 
-def _lead_filter_clauses(q=None, equipment=None, mc_min=None, mc_max=None):
+def _lead_filter_clauses(q=None, equipment=None, mc_min=None, mc_max=None, job_row_id=None):
     clauses = []
     params = []
+    if job_row_id is not None:
+        clauses.append('first_found_job_id = ?')
+        params.append(job_row_id)
     if q:
         like = f'%{q}%'
         clauses.append('(legal_name LIKE ? OR usdot LIKE ? OR mc_number LIKE ?)')
@@ -289,10 +347,10 @@ def _lead_filter_clauses(q=None, equipment=None, mc_min=None, mc_max=None):
     return clauses, params
 
 
-def list_leads(q=None, equipment=None, mc_min=None, mc_max=None, limit=500, offset=0):
+def list_leads(q=None, equipment=None, mc_min=None, mc_max=None, job_row_id=None, limit=500, offset=0):
     conn = get_connection()
     try:
-        clauses, params = _lead_filter_clauses(q, equipment, mc_min, mc_max)
+        clauses, params = _lead_filter_clauses(q, equipment, mc_min, mc_max, job_row_id)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ''
         rows = conn.execute(
             f'SELECT l.*, EXISTS(SELECT 1 FROM call_logs cl WHERE cl.lead_id = l.id) AS been_called '
@@ -304,10 +362,10 @@ def list_leads(q=None, equipment=None, mc_min=None, mc_max=None, limit=500, offs
         conn.close()
 
 
-def count_leads(q=None, equipment=None, mc_min=None, mc_max=None):
+def count_leads(q=None, equipment=None, mc_min=None, mc_max=None, job_row_id=None):
     conn = get_connection()
     try:
-        clauses, params = _lead_filter_clauses(q, equipment, mc_min, mc_max)
+        clauses, params = _lead_filter_clauses(q, equipment, mc_min, mc_max, job_row_id)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ''
         row = conn.execute(f'SELECT COUNT(*) AS cnt FROM leads {where}', params).fetchone()
         return row['cnt']

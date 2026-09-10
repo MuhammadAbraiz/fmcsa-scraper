@@ -30,11 +30,12 @@
     {% if jobs %}
     <div class="table-scroll">
     <table>
-        <thead><tr><th>Started</th><th>MC Range</th><th>Status</th><th>Processed / Total</th><th>Found</th></tr></thead>
+        <thead><tr><th>Started</th><th>Folder</th><th>MC Range</th><th>Status</th><th>Processed / Total</th><th>Found</th></tr></thead>
         <tbody>
             {% for job in jobs %}
             <tr>
                 <td>{{ job.started_at }}</td>
+                <td>{{ job.name or '—' }}</td>
                 <td>{{ job.start_mc }} – {{ job.end_mc }}</td>
                 <td>{{ job.status }}</td>
                 <td>{{ job.processed }} / {{ job.total }}</td>

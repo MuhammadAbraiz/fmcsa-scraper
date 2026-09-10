@@ -187,9 +187,10 @@ LOOKUP_WORKERS = 15
 EMAIL_WORKERS = 5
 
 
-def run_scrape_job(job_id, start_mc, end_mc, agent_id):
+def run_scrape_job(job_id, start_mc, end_mc, agent_id, name=None):
     total = end_mc - start_mc + 1
-    job_row_id = models.create_search_job(job_id, agent_id, start_mc, end_mc, total)
+    job_row_id = models.create_search_job(job_id, agent_id, start_mc, end_mc, total, name=name)
+    models.set_active_folder(agent_id, job_row_id)
 
     write_job(job_id, status='running', processed=0, total=total, found=0,
               start_mc=start_mc, end_mc=end_mc, message=None)
@@ -245,8 +246,10 @@ def run_scrape_job(job_id, start_mc, end_mc, agent_id):
     models.update_search_job(job_id, status='done', message=message)
 
 
-def start_scrape_job(start_mc, end_mc, agent_id):
+def start_scrape_job(start_mc, end_mc, agent_id, name=None):
     job_id = uuid.uuid4().hex
-    thread = threading.Thread(target=run_scrape_job, args=(job_id, start_mc, end_mc, agent_id), daemon=True)
+    thread = threading.Thread(
+        target=run_scrape_job, args=(job_id, start_mc, end_mc, agent_id), kwargs={'name': name}, daemon=True,
+    )
     thread.start()
     return job_id

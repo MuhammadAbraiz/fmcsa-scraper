@@ -5,6 +5,9 @@
     <h1>Carrier Lead Search</h1>
     <p>Enter an MC number range to scan. Matching carriers (1 power unit, authorized for property) appear below in real time, with email pulled from FMCSA and a best-effort "Likely Equipment" guess from cargo data — not a verified fact, just a hint for prioritizing calls.</p>
     <form id="scrape-form">
+        <label for="folder_name">Folder Name:</label>
+        <input type="text" id="folder_name" name="name" required placeholder="e.g. Midwest reefer push">
+
         <label for="start_mc">Start MC Number:</label>
         <input type="number" id="start_mc" name="start_mc" required value="1560000">
 
@@ -40,20 +43,29 @@
     </div>
 </div>
 
-{% if recent_jobs %}
+{% if folders %}
 <div class="card">
-    <h2>Your Recent Searches</h2>
+    <div class="section-header">
+        <h2>Your Folders</h2>
+        <span class="pagination-info">Pick one to make it your active folder — All Leads and Call Queue open to it by default until you switch.</span>
+    </div>
     <div class="table-scroll">
     <table>
-        <thead><tr><th>When</th><th>MC Range</th><th>Status</th><th>Processed / Total</th><th>Found</th><th></th></tr></thead>
+        <thead><tr><th>Folder</th><th>MC Range</th><th>Status</th><th>Found</th><th></th><th></th></tr></thead>
         <tbody>
-            {% for job in recent_jobs %}
+            {% for job in folders %}
             <tr>
-                <td>{{ job.started_at }}</td>
+                <td>{{ job.name or ('MC ' ~ job.start_mc ~ '-' ~ job.end_mc) }}</td>
                 <td>{{ job.start_mc }} – {{ job.end_mc }}</td>
                 <td>{{ job.status }}</td>
-                <td>{{ job.processed }} / {{ job.total }}</td>
                 <td>{{ job.found }}</td>
+                <td>
+                    {% if job.id == active_folder_id %}
+                    <span class="badge badge-active">Active</span>
+                    {% else %}
+                    <button type="button" class="btn-secondary btn-small" onclick="setActiveFolder('{{ job.job_uuid }}', this)">Set Active</button>
+                    {% endif %}
+                </td>
                 <td>
                     <button type="button" class="btn-secondary btn-small" onclick="viewPastJob('{{ job.job_uuid }}')">View Results</button>
                     <a href="{{ url_for('agent.call_queue') }}?job_id={{ job.job_uuid }}" class="btn-secondary btn-small">Call Queue</a>
@@ -276,6 +288,20 @@
         submitBtn.disabled = false;
         submitBtn.textContent = 'Start Search';
     }
+
+    window.setActiveFolder = async function(jobUuid, btn) {
+        btn.disabled = true;
+        btn.textContent = 'Setting...';
+        try {
+            const body = new FormData();
+            body.append('job_id', jobUuid);
+            const res = await fetch(apiUrl('/account/active-folder'), { method: 'POST', body });
+            if (res.ok) window.location.reload();
+        } catch (err) {
+            btn.disabled = false;
+            btn.textContent = 'Set Active';
+        }
+    };
 
     resumeActiveJobIfAny();
 </script>

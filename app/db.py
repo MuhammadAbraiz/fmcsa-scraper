@@ -13,12 +13,15 @@ CREATE TABLE IF NOT EXISTS users (
     role ENUM('admin', 'agent') NOT NULL,
     full_name TEXT,
     is_active TINYINT(1) NOT NULL DEFAULT 1,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    active_folder_id INT NULL,
+    active_filters TEXT NULL
 );
 
 CREATE TABLE IF NOT EXISTS search_jobs (
     id INT PRIMARY KEY AUTO_INCREMENT,
     job_uuid VARCHAR(64) NOT NULL UNIQUE,
+    name VARCHAR(191) NULL,
     agent_id INT NOT NULL,
     start_mc INT NOT NULL,
     end_mc INT NOT NULL,
@@ -205,6 +208,17 @@ def warm_pool():
 
 
 DUPLICATE_KEY_NAME = 1061  # ER_DUP_KEYNAME: CREATE INDEX has no IF NOT EXISTS in MySQL
+DUPLICATE_COLUMN = 1060  # ER_DUP_FIELDNAME: ALTER TABLE ADD COLUMN has no IF NOT EXISTS either
+
+# Columns added after the initial schema - CREATE TABLE IF NOT EXISTS is a
+# no-op against an already-live table, so already-deployed databases need
+# these applied explicitly. Safe to re-run: duplicate-column errors are
+# swallowed the same way duplicate-index errors already are below.
+MIGRATIONS = [
+    'ALTER TABLE search_jobs ADD COLUMN name VARCHAR(191) NULL',
+    'ALTER TABLE users ADD COLUMN active_folder_id INT NULL',
+    'ALTER TABLE users ADD COLUMN active_filters TEXT NULL',
+]
 
 
 def init_db():
@@ -219,6 +233,12 @@ def init_db():
                 cur.execute(statement)
             except pymysql.err.OperationalError as e:
                 if e.args[0] != DUPLICATE_KEY_NAME:
+                    raise
+        for statement in MIGRATIONS:
+            try:
+                cur.execute(statement)
+            except pymysql.err.OperationalError as e:
+                if e.args[0] != DUPLICATE_COLUMN:
                     raise
         conn.commit()
     finally:

@@ -6,3 +6,4 @@ jobs/
 app.db
 app.db-wal
 app.db-shm
+extracts/mc_*/
