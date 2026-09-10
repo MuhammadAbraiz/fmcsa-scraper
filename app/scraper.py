@@ -189,11 +189,18 @@ EMAIL_WORKERS = 5
 
 def run_scrape_job(job_id, start_mc, end_mc, agent_id, name=None):
     total = end_mc - start_mc + 1
-    job_row_id = models.create_search_job(job_id, agent_id, start_mc, end_mc, total, name=name)
-    models.set_active_folder(agent_id, job_row_id)
-
+    # write_job() first, before any DB round-trip: the frontend's first status
+    # poll fires immediately (no delay) after POST /search returns the job_id,
+    # racing this background thread. write_job is a fast local file write with
+    # no network dependency, so doing it before create_search_job/
+    # set_active_folder (each a real round-trip to the hosted DB) keeps that
+    # race essentially unwinnable instead of turning "Job not found" into a
+    # frequent, user-visible failure.
     write_job(job_id, status='running', processed=0, total=total, found=0,
               start_mc=start_mc, end_mc=end_mc, message=None)
+
+    job_row_id = models.create_search_job(job_id, agent_id, start_mc, end_mc, total, name=name)
+    models.set_active_folder(agent_id, job_row_id)
 
     def process_mc(mc_number):
         carrier_data = extract_data(fetch_mc_data(mc_number))
