@@ -80,7 +80,12 @@ def login():
         session['user_id'] = user['id']
         next_path = request.args.get('next') or request.form.get('next')
         if next_path and next_path.startswith('/'):
-            return redirect(next_path)
+            # next_path is PATH_INFO-relative (e.g. "/leads"); redirect()
+            # sends it to the browser as-is, so under a proxy-mounted
+            # sub-path (URL_PREFIX) it must be re-prefixed with
+            # request.script_root or the browser lands one level too high
+            # and misses the mount entirely.
+            return redirect(request.script_root + next_path)
         return redirect(url_for('index'))
     return render_template('login.html', next=request.args.get('next', ''))
 
