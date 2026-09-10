@@ -85,9 +85,13 @@
     let pollTimer = null;
     let lastSeenLeadId = 0;
 
-    window.markCalled = function(el, leadId) {
+    window.markCalled = async function(el, leadId) {
         el.classList.add('called');
-        fetch(apiUrl(`/leads/${leadId}/call`), { method: 'POST' }).catch(() => {});
+        try {
+            const res = await fetch(apiUrl(`/leads/${leadId}/call`), { method: 'POST' });
+            const data = await res.json();
+            openLeadDrawer(leadId, data.call_id);
+        } catch (err) {}
     };
 
     function leadRowHtml(lead) {

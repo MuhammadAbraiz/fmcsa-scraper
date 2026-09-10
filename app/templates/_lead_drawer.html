@@ -23,16 +23,26 @@
     }
     window.leadIconSvg = iconSvg;
 
-    window.openLeadDrawer = async function(leadId) {
+    // existingCallId: pass this when the caller already logged the call itself
+    // (e.g. the quick-dial icon in a leads table) so the drawer opens straight
+    // to the outcome panel instead of requiring a second click on its own
+    // call button.
+    window.openLeadDrawer = async function(leadId, existingCallId) {
         overlay.classList.add('open');
         drawer.classList.add('open');
         body.innerHTML = '<div class="drawer-loading">Loading...</div>';
-        drawerCallId = null;
+        drawerCallId = existingCallId || null;
         try {
             const res = await fetch(apiUrl(`/api/leads/${leadId}`));
             const lead = await res.json();
             if (!res.ok) throw new Error(lead.error || 'Not found');
             renderDrawer(lead);
+            if (existingCallId) {
+                const callBtn = document.getElementById('drawer-call-btn');
+                if (callBtn) callBtn.classList.add('called');
+                const outcomePanel = document.getElementById('drawer-outcome-panel');
+                if (outcomePanel) outcomePanel.style.display = 'block';
+            }
         } catch (err) {
             body.innerHTML = `<div class="alert alert-error">Could not load lead.</div>`;
         }

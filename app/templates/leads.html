@@ -81,9 +81,16 @@
             </tr>`;
     }
 
-    window.markCalled = function(el, leadId) {
+    window.markCalled = async function(el, leadId) {
         el.classList.add('called');
-        fetch(apiUrl(`/leads/${leadId}/call`), { method: 'POST' }).catch(() => {});
+        try {
+            const res = await fetch(apiUrl(`/leads/${leadId}/call`), { method: 'POST' });
+            const data = await res.json();
+            // Open the drawer straight to the outcome panel so a status can be
+            // marked immediately, instead of leaving the call logged with no
+            // way to record what happened.
+            openLeadDrawer(leadId, data.call_id);
+        } catch (err) {}
     };
 
     async function loadLeads(page) {
