@@ -95,6 +95,7 @@
     const ACTIVE_JOB_KEY = 'fmcsa_active_job_id';
     const LAST_JOB_KEY = 'fmcsa_last_job_id';
     let pollTimer = null;
+    let pollGeneration = 0;
     let lastSeenLeadId = 0;
 
     window.markCalled = async function(el, leadId) {
@@ -133,7 +134,7 @@
 
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
-        if (pollTimer) clearInterval(pollTimer);
+        stopPolling();
         lastSeenLeadId = 0;
         resultsTbody.innerHTML = '';
         resultsSection.style.display = 'block';
@@ -164,24 +165,47 @@
         }
     });
 
-    function pollStatus(jobId) {
-        pollTimer = setInterval(() => tick(jobId), 1500);
-        tick(jobId);
+    // Self-scheduling timeout instead of setInterval: the next tick is only
+    // scheduled once the current one's async work (two sequential fetches)
+    // fully resolves, so slow requests can never overlap. Overlapping ticks
+    // used to be able to race on lastSeenLeadId - two ticks both reading it
+    // as the same stale value, both fetching (and appending) the same "new"
+    // leads - rare with fast local SQLite, common once every request had a
+    // real network round-trip to the hosted DB. pollGeneration guards against
+    // a slower, superseded tick (e.g. from a job that's since been replaced
+    // by starting a new search) still appending results after the fact.
+    function stopPolling() {
+        pollGeneration++;
+        if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
     }
 
-    async function tick(jobId) {
+    function pollStatus(jobId) {
+        stopPolling();
+        const myGeneration = pollGeneration;
+        async function loop() {
+            await tick(jobId, myGeneration);
+            if (myGeneration === pollGeneration) {
+                pollTimer = setTimeout(loop, 1500);
+            }
+        }
+        loop();
+    }
+
+    async function tick(jobId, myGeneration) {
         try {
             const res = await fetch(apiUrl(`/search/${jobId}/status`));
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Job not found');
+            if (myGeneration !== pollGeneration) return;
             updateProgress(data);
             await fetchNewLeads(jobId);
+            if (myGeneration !== pollGeneration) return;
             if (data.status === 'done' || data.status === 'error') {
-                clearInterval(pollTimer);
+                stopPolling();
                 finishJob(data);
             }
         } catch (err) {
-            clearInterval(pollTimer);
+            stopPolling();
             localStorage.removeItem(ACTIVE_JOB_KEY);
             showResult(false, err.message);
             resetButton();
@@ -236,7 +260,7 @@
     }
 
     window.viewPastJob = async function(jobId, silent) {
-        if (pollTimer) clearInterval(pollTimer);
+        stopPolling();
         lastSeenLeadId = 0;
         resultsTbody.innerHTML = '';
         try {
