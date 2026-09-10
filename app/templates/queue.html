@@ -7,11 +7,9 @@
         <span class="queue-count" id="queue-count"></span>
     </div>
 
-    {% if job %}
-    <div class="queue-scope-banner">
-        <span>Working through folder "{{ job.name or ('MC ' ~ job.start_mc ~ '-' ~ job.end_mc) }}" ({{ job.found }} found).</span>
+    <div class="queue-scope-banner" id="queue-scope-banner" {{ '' if job else 'style="display:none;"' }}>
+        <span id="queue-scope-text">{% if job %}Working through folder "{{ job.name or ('MC ' ~ job.start_mc ~ '-' ~ job.end_mc) }}" ({{ job.found }} found).{% endif %}</span>
     </div>
-    {% endif %}
 
     <div class="filter-bar">
         <div class="filter-field">
@@ -231,15 +229,35 @@
         render();
     });
 
+    // The scope banner is server-rendered from the folder active when the
+    // page loaded; switching folders client-side (without a reload) needs
+    // this kept in sync too, or it keeps naming the folder you just left.
+    function updateScopeBanner() {
+        const folderSelect = document.getElementById('f-folder');
+        const banner = document.getElementById('queue-scope-banner');
+        const text = document.getElementById('queue-scope-text');
+        if (folderSelect.value === 'all') {
+            banner.style.display = 'none';
+        } else {
+            const label = folderSelect.options[folderSelect.selectedIndex].textContent;
+            text.textContent = `Working through folder "${label}".`;
+            banner.style.display = 'block';
+        }
+    }
+
     document.getElementById('q-reload-btn').addEventListener('click', () => loadQueue(true));
     document.getElementById('apply-filters-btn').addEventListener('click', () => loadQueue(true));
-    document.getElementById('f-folder').addEventListener('change', () => loadQueue(true));
+    document.getElementById('f-folder').addEventListener('change', () => {
+        updateScopeBanner();
+        loadQueue(true);
+    });
     document.getElementById('clear-filters-btn').addEventListener('click', () => {
         document.getElementById('f-q').value = '';
         document.getElementById('f-equipment').value = '';
         document.getElementById('f-mc-min').value = '';
         document.getElementById('f-mc-max').value = '';
         document.getElementById('f-folder').value = 'all';
+        updateScopeBanner();
         loadQueue(true);
     });
 
