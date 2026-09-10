@@ -99,6 +99,14 @@ DB_CONFIG = dict(
 )
 
 
+# pymysql error codes raised when a connection has gone stale server-side
+# (idle timeout, server restart, etc.) - the only cases worth a transparent
+# reconnect-and-retry.
+CR_SERVER_GONE_ERROR = 2006
+CR_SERVER_LOST = 2013
+_STALE_CONNECTION_CODES = (CR_SERVER_GONE_ERROR, CR_SERVER_LOST)
+
+
 class Connection:
     """Thin wrapper so callers can keep using sqlite3-style conn.execute(sql, params)
     with '?' placeholders, instead of rewriting every call site for pymysql."""
@@ -107,9 +115,23 @@ class Connection:
         self._raw = raw
 
     def execute(self, sql, params=()):
-        cur = self._raw.cursor()
-        cur.execute(sql.replace('?', '%s'), params)
-        return cur
+        sql = sql.replace('?', '%s')
+        try:
+            cur = self._raw.cursor()
+            cur.execute(sql, params)
+            return cur
+        except pymysql.err.OperationalError as e:
+            if e.args[0] not in _STALE_CONNECTION_CODES:
+                raise
+            # Connection was dead (e.g. idle past the server's wait_timeout) -
+            # reconnect once and retry, rather than proactively pinging every
+            # borrow (which would cost a network round-trip on every single
+            # query, even though a pooled connection is almost always still
+            # alive between requests seconds apart).
+            self._raw = _connect()
+            cur = self._raw.cursor()
+            cur.execute(sql, params)
+            return cur
 
     def commit(self):
         self._raw.commit()
@@ -147,19 +169,14 @@ _created = 0
 def _acquire():
     global _created
     try:
-        raw = _pool.get_nowait()
+        return _pool.get_nowait()
     except queue.Empty:
-        with _pool_lock:
-            if _created < POOL_SIZE:
-                _created += 1
-                return _connect()
-        raw = _pool.get()  # at capacity: block until one is released
-    try:
-        raw.ping(reconnect=True)  # may silently reconnect if the server dropped it
-        _set_utc(raw)  # reconnect resets the session, so timezone must be re-applied
-    except Exception:
-        raw = _connect()
-    return raw
+        pass
+    with _pool_lock:
+        if _created < POOL_SIZE:
+            _created += 1
+            return _connect()
+    return _pool.get()  # at capacity: block until one is released
 
 
 def _release(raw):
