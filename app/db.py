@@ -190,6 +190,20 @@ def get_connection():
     return Connection(_acquire())
 
 
+def warm_pool():
+    """Pre-open every pooled connection at startup instead of lazily on first
+    use. Opening a *new* connection to the hosted DB costs ~0.5-2s (TLS +
+    auth handshake over real network distance) vs ~0.2s for a query on an
+    already-open one - without this, that cost lands on whichever random
+    early request happens to need a not-yet-created pool slot, instead of
+    being paid once at deploy time before real traffic arrives."""
+    global _created
+    with _pool_lock:
+        while _created < POOL_SIZE:
+            _created += 1
+            _pool.put_nowait(_connect())
+
+
 DUPLICATE_KEY_NAME = 1061  # ER_DUP_KEYNAME: CREATE INDEX has no IF NOT EXISTS in MySQL
 
 

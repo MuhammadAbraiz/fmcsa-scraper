@@ -47,6 +47,7 @@ app.secret_key = secret_key
 
 from . import db  # noqa: E402
 db.init_db()
+db.warm_pool()
 
 from . import auth  # noqa: E402
 from . import routes_agent  # noqa: E402
