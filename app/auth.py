@@ -14,7 +14,7 @@ bp = Blueprint('auth', __name__)
 @bp.before_app_request
 def load_logged_in_user():
     user_id = session.get('user_id')
-    g.user = models.get_user_by_id(user_id) if user_id else None
+    g.user = models.get_user_for_session(user_id) if user_id else None
 
 
 def login_required(view):

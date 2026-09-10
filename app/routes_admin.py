@@ -84,7 +84,7 @@ def reset_agent_password(user_id):
             return render_template('error.html', message='Agent not found.'), 404
         jobs = models.list_search_jobs(agent_id=user_id)
         calls = models.list_call_logs(agent_id=user_id)
-        call_stats = {p: models.call_outcome_breakdown(period=p, agent_id=user_id) for p in models.CALL_STAT_PERIODS}
+        call_stats = models.call_outcome_breakdown_all_periods(agent_id=user_id)
         return render_template(
             'admin_agent_detail.html', agent=agent, jobs=jobs, calls=calls, call_stats=call_stats,
             password_error='Password must be at least 6 characters.',

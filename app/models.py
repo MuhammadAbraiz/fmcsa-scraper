@@ -1,3 +1,5 @@
+import time
+
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from .db import get_connection
@@ -53,6 +55,25 @@ def get_user_by_id(user_id):
         return dict(row) if row else None
     finally:
         conn.close()
+
+
+# The hosted DB now sits across a real network hop from the app (see
+# app/db.py's pooling comment) - every query costs a meaningful round trip.
+# before_app_request calls this on *every single request* just to populate
+# g.user, which was free with local SQLite but adds up badly now. A few
+# seconds of staleness on an admin deactivating someone mid-session is an
+# acceptable trade for not paying a DB round trip on every click.
+_session_user_cache = {}
+SESSION_USER_CACHE_TTL_SECONDS = 5
+
+
+def get_user_for_session(user_id):
+    cached = _session_user_cache.get(user_id)
+    if cached and time.monotonic() - cached[1] < SESSION_USER_CACHE_TTL_SECONDS:
+        return cached[0]
+    user = get_user_by_id(user_id)
+    _session_user_cache[user_id] = (user, time.monotonic())
+    return user
 
 
 def list_agents():
@@ -567,6 +588,40 @@ def call_outcome_breakdown(period='today', agent_id=None, custom_date=None):
         conn.close()
 
 
+def call_outcome_breakdown_all_periods(agent_id=None):
+    """Same shape as calling call_outcome_breakdown() once per CALL_STAT_PERIODS
+    entry ({period: {total, <outcome>: n, ..., pending: n}}), but in a single
+    round trip instead of three - the admin agent-detail page needs all three
+    periods at once, and each separate query pays the hosted DB's network
+    latency independently."""
+    conn = get_connection()
+    try:
+        period_conditions = {p: _period_clause('called_at', p)[0] for p in CALL_STAT_PERIODS}
+        parts = []
+        for period, cond in period_conditions.items():
+            parts.append(f'SUM(CASE WHEN {cond} THEN 1 ELSE 0 END) AS {period}__total')
+            for outcome in CALL_OUTCOMES:
+                alias = outcome.lower().replace(' ', '_')
+                parts.append(
+                    f"SUM(CASE WHEN {cond} AND outcome = '{outcome}' THEN 1 ELSE 0 END) AS {period}__{alias}"
+                )
+            parts.append(f'SUM(CASE WHEN {cond} AND outcome IS NULL THEN 1 ELSE 0 END) AS {period}__pending')
+
+        where = 'agent_id = ?' if agent_id is not None else '1=1'
+        params = [agent_id] if agent_id is not None else []
+        row = conn.execute(f"SELECT {', '.join(parts)} FROM call_logs WHERE {where}", params).fetchone()
+
+        result = {}
+        for period in period_conditions:
+            result[period] = {'total': row[f'{period}__total'], 'pending': row[f'{period}__pending']}
+            for outcome in CALL_OUTCOMES:
+                alias = outcome.lower().replace(' ', '_')
+                result[period][alias] = row[f'{period}__{alias}']
+        return result
+    finally:
+        conn.close()
+
+
 def agent_call_stats(period='today', custom_date=None):
     """Per-agent call totals + outcome breakdown for a shift-day period.
 
@@ -596,23 +651,19 @@ def agent_call_stats(period='today', custom_date=None):
 def dashboard_summary():
     conn = get_connection()
     try:
-        total_leads = conn.execute('SELECT COUNT(*) AS cnt FROM leads').fetchone()['cnt']
-        active_agents = conn.execute(
-            "SELECT COUNT(*) AS cnt FROM users WHERE role='agent' AND is_active=1"
-        ).fetchone()['cnt']
+        # One round trip instead of four - each query used to open its own
+        # connection borrow and pay the hosted DB's network latency
+        # separately; correlated subqueries let the server compute all four
+        # in a single request/response.
         jobs_today_sql, _ = _period_clause('started_at', 'today')
         calls_today_sql, _ = _period_clause('called_at', 'today')
-        jobs_today = conn.execute(
-            f'SELECT COUNT(*) AS cnt FROM search_jobs WHERE {jobs_today_sql}'
-        ).fetchone()['cnt']
-        calls_today = conn.execute(
-            f'SELECT COUNT(*) AS cnt FROM call_logs WHERE {calls_today_sql}'
-        ).fetchone()['cnt']
-        return {
-            'total_leads': total_leads,
-            'active_agents': active_agents,
-            'jobs_today': jobs_today,
-            'calls_today': calls_today,
-        }
+        row = conn.execute(
+            'SELECT '
+            '(SELECT COUNT(*) FROM leads) AS total_leads, '
+            "(SELECT COUNT(*) FROM users WHERE role='agent' AND is_active=1) AS active_agents, "
+            f'(SELECT COUNT(*) FROM search_jobs WHERE {jobs_today_sql}) AS jobs_today, '
+            f'(SELECT COUNT(*) FROM call_logs WHERE {calls_today_sql}) AS calls_today'
+        ).fetchone()
+        return dict(row)
     finally:
         conn.close()
