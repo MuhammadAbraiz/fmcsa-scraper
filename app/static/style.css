@@ -326,6 +326,11 @@ td a:hover { text-decoration: underline; }
 .filter-bar label { font-size: 0.78em; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
 .filter-bar input, .filter-bar select { min-width: 140px; }
 .filter-bar .filter-mc { min-width: 90px; }
+.period-btn-group { display: flex; gap: 0.6em; flex-wrap: wrap; }
+.filter-divider {
+    color: var(--color-text-muted); font-size: 0.78em; text-transform: uppercase;
+    letter-spacing: 0.04em; align-self: center; padding: 0 0.2em;
+}
 
 /* Slide-over drawer */
 .drawer-overlay {

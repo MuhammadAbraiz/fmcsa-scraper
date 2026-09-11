@@ -6,11 +6,14 @@
     <p style="text-align:center;">All figures are bucketed by Pakistan time (PKT, UTC+5) since that's when the team actually works, not by the US market's calendar day.</p>
 
     <div class="filter-bar" style="justify-content:center;">
-        <button type="button" class="period-btn btn-secondary" data-period="today">Today (PKT)</button>
-        <button type="button" class="period-btn btn-secondary" data-period="week">Last 7 Days (PKT)</button>
-        <button type="button" class="period-btn btn-secondary" data-period="all_time">All Time</button>
+        <div class="period-btn-group">
+            <button type="button" class="period-btn btn-secondary" data-period="today">Today (PKT)</button>
+            <button type="button" class="period-btn btn-secondary" data-period="week">Last 7 Days (PKT)</button>
+            <button type="button" class="period-btn btn-secondary" data-period="all_time">All Time</button>
+        </div>
+        <div class="filter-divider">or</div>
         <div class="filter-field">
-            <label for="custom-date-input">Or check a specific shift day</label>
+            <label for="custom-date-input">Check a specific shift day</label>
             <input type="date" id="custom-date-input" max="{{ current_shift_date }}">
         </div>
     </div>
