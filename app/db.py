@@ -1,6 +1,7 @@
 import os
 import queue
 import threading
+import time
 
 import pymysql
 import pymysql.cursors
@@ -211,6 +212,53 @@ def warm_pool():
         while _created < POOL_SIZE:
             _created += 1
             _pool.put_nowait(_connect())
+
+
+# Hostinger's wait_timeout is 20 seconds (confirmed via SHOW VARIABLES) -
+# unusually aggressive for shared hosting. Real usage has gaps well past
+# that (an agent reads a lead, dials, talks to the carrier, logs an outcome
+# - easily 30s+ between DB-touching requests), so without this, pooled
+# connections routinely go stale between uses and every request after a
+# gap pays the ~1-2s reconnect cost. The reactive retry in
+# Connection.execute() is still needed as a safety net (a request can
+# always race a connection going stale right as it's borrowed), but this
+# heartbeat is what keeps that from being the common case instead of a
+# rare edge case.
+HEARTBEAT_INTERVAL_SECONDS = int(os.environ.get('DB_HEARTBEAT_SECONDS', '12'))
+
+
+def _heartbeat_tick():
+    global _created
+    # Drain only what's currently idle in the pool - connections mid-use
+    # elsewhere are never touched, so this can't race a real request.
+    idle = []
+    try:
+        while True:
+            idle.append(_pool.get_nowait())
+    except queue.Empty:
+        pass
+    for raw in idle:
+        try:
+            raw.cursor().execute('SELECT 1')
+            _pool.put_nowait(raw)
+        except Exception:
+            try:
+                raw.close()
+            except Exception:
+                pass
+            with _pool_lock:
+                _created -= 1
+
+
+def start_heartbeat():
+    def loop():
+        while True:
+            time.sleep(HEARTBEAT_INTERVAL_SECONDS)
+            try:
+                _heartbeat_tick()
+            except Exception:
+                pass  # never let the heartbeat thread die from one bad tick
+    threading.Thread(target=loop, daemon=True).start()
 
 
 DUPLICATE_KEY_NAME = 1061  # ER_DUP_KEYNAME: CREATE INDEX has no IF NOT EXISTS in MySQL
