@@ -13,12 +13,15 @@
 </div>
 
 <div class="card">
-    <h2>Recent Searches (All Agents)</h2>
+    <div class="section-header">
+        <h2>Recent Searches (All Agents)</h2>
+        <span class="pagination-info" id="jobs-live-indicator"></span>
+    </div>
     {% if recent_jobs %}
     <div class="table-scroll">
     <table>
         <thead><tr><th>Started</th><th>Agent</th><th>Folder</th><th>MC Range</th><th>Status</th><th>Processed / Total</th><th>Found</th></tr></thead>
-        <tbody>
+        <tbody id="recent-jobs-tbody">
             {% for job in recent_jobs %}
             <tr>
                 <td>{{ job.started_at }}</td>
@@ -61,4 +64,46 @@
     <div class="table-empty">No calls logged yet.</div>
     {% endif %}
 </div>
+
+<script>
+    // Live-refresh "Recent Searches" while any job is still running, so an
+    // admin can watch a scrape's progress without manually reloading. Stops
+    // polling on its own once nothing here is 'running' - most of the time
+    // there's nothing active, so this shouldn't poll forever in the background.
+    const jobsTbody = document.getElementById('recent-jobs-tbody');
+    const liveIndicator = document.getElementById('jobs-live-indicator');
+    let jobsPollTimer = null;
+
+    function jobRowHtml(job) {
+        return `
+            <tr>
+                <td>${escapeHtml(job.started_at)}</td>
+                <td><a href="${apiUrl(`/admin/agents/${job.agent_id}`)}">${escapeHtml(job.agent_username)}</a></td>
+                <td>${escapeHtml(job.name) || '—'}</td>
+                <td>${escapeHtml(job.start_mc)} – ${escapeHtml(job.end_mc)}</td>
+                <td>${escapeHtml(job.status)}</td>
+                <td>${escapeHtml(job.processed)} / ${escapeHtml(job.total)}</td>
+                <td>${escapeHtml(job.found)}</td>
+            </tr>`;
+    }
+
+    async function pollJobs() {
+        try {
+            const res = await fetch(apiUrl('/admin/api/recent-jobs'));
+            const jobs = await res.json();
+            if (jobsTbody) jobsTbody.innerHTML = jobs.map(jobRowHtml).join('');
+            const stillRunning = jobs.some(j => j.status === 'running');
+            liveIndicator.textContent = stillRunning ? 'Live — updating every few seconds' : '';
+            if (stillRunning) {
+                jobsPollTimer = setTimeout(pollJobs, 3000);
+            }
+        } catch (err) {
+            // transient network hiccup - just stop polling rather than looping on errors
+        }
+    }
+
+    {% if has_running_jobs %}
+    pollJobs();
+    {% endif %}
+</script>
 {% endblock %}

@@ -24,7 +24,20 @@ def dashboard():
     summary = models.dashboard_summary()
     recent_jobs = models.list_search_jobs(limit=15)
     recent_calls = models.list_call_logs(limit=15)
-    return render_template('admin_dashboard.html', summary=summary, recent_jobs=recent_jobs, recent_calls=recent_calls)
+    has_running_jobs = any(j['status'] == 'running' for j in recent_jobs)
+    return render_template(
+        'admin_dashboard.html', summary=summary, recent_jobs=recent_jobs, recent_calls=recent_calls,
+        has_running_jobs=has_running_jobs,
+    )
+
+
+@bp.route('/api/recent-jobs')
+@api_admin_required
+def api_recent_jobs():
+    # Backs the dashboard's live-progress polling (see admin_dashboard.html) -
+    # only worth polling while a scrape is actually running, so the frontend
+    # stops once nothing here is still 'running'.
+    return jsonify(models.list_search_jobs(limit=15))
 
 
 @bp.route('/agents', methods=['GET', 'POST'])
@@ -149,7 +162,7 @@ def list_files():
             'filename': filename,
             'size_bytes': os.path.getsize(path),
             'modified_at': datetime.fromtimestamp(os.path.getmtime(path)).strftime('%Y-%m-%d %H:%M:%S'),
-            'download_url': f'/admin/download/{filename}',
+            'download_url': url_for('admin.download_file', filename=filename),
         })
     files.sort(key=lambda f: f['modified_at'], reverse=True)
     return render_template('admin_legacy_files.html', files=files)
