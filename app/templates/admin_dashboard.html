@@ -17,7 +17,7 @@
     {% set max_count = ([calls_chart | map(attribute='count') | max, 1] | max) %}
     <svg viewBox="0 0 700 200" class="calls-chart" role="img" aria-label="Calls logged per day over the last 7 shift-days">
         {% for day in calls_chart %}
-        {% set bar_height = (day.count / max_count * 140) | round(0, 'ceil') if day.count > 0 else 0 %}
+        {% set bar_height = (day.count / max_count * 128) | round(0, 'ceil') if day.count > 0 else 0 %}
         {% set x = loop.index0 * 100 + 20 %}
         <text x="{{ x + 30 }}" y="{{ 150 - bar_height - 8 }}" text-anchor="middle" class="calls-chart-value">{{ day.count }}</text>
         <rect x="{{ x }}" y="{{ 150 - bar_height }}" width="60" height="{{ bar_height }}" rx="4" class="calls-chart-bar"></rect>
