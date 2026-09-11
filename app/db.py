@@ -123,14 +123,20 @@ class Connection:
             cur = self._raw.cursor()
             cur.execute(sql, params)
             return cur
-        except pymysql.err.OperationalError as e:
-            if e.args[0] not in _STALE_CONNECTION_CODES:
+        except (pymysql.err.OperationalError, pymysql.err.InterfaceError) as e:
+            # OperationalError is also raised for genuine query problems
+            # (bad SQL, etc.), so only retry it for the known stale-connection
+            # codes - InterfaceError, on the other hand, means the socket
+            # itself is already closed (e.g. the server dropped it after the
+            # box sat idle overnight past wait_timeout), so it's always safe
+            # to reconnect and retry regardless of args.
+            if isinstance(e, pymysql.err.OperationalError) and e.args[0] not in _STALE_CONNECTION_CODES:
                 raise
-            # Connection was dead (e.g. idle past the server's wait_timeout) -
-            # reconnect once and retry, rather than proactively pinging every
-            # borrow (which would cost a network round-trip on every single
-            # query, even though a pooled connection is almost always still
-            # alive between requests seconds apart).
+            # Connection was dead - reconnect once and retry, rather than
+            # proactively pinging every borrow (which would cost a network
+            # round-trip on every single query, even though a pooled
+            # connection is almost always still alive between requests
+            # seconds apart).
             self._raw = _connect()
             cur = self._raw.cursor()
             cur.execute(sql, params)
