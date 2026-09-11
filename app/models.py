@@ -203,6 +203,27 @@ def update_search_job(job_uuid, **fields):
         conn.close()
 
 
+def mark_orphaned_jobs_as_error():
+    """A search job's actual scrape runs on a background thread inside one
+    gunicorn worker process; if that process restarts (a deploy, a crash) the
+    thread dies with it, but nothing ever updates the job's own 'running' row
+    to say so - it just sits there forever, misleadingly looking active (and
+    would make any "poll while a job is running" UI feature poll forever for
+    nothing). Called once at app startup: any row still 'running' at that
+    point can only be orphaned, since a real run's thread can't outlive the
+    process it started in - this process just started.
+    """
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE search_jobs SET status = 'error', message = 'Interrupted by a server restart', "
+            "finished_at = NOW() WHERE status = 'running'",
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def get_search_job(job_uuid):
     conn = get_connection()
     try:

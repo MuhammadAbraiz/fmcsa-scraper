@@ -50,6 +50,15 @@ db.init_db()
 db.warm_pool()
 db.start_heartbeat()
 
+from . import models  # noqa: E402
+# Any job still 'running' at process startup is orphaned - its background
+# thread died with whatever process last restarted, since a real run's
+# thread can't outlive the process it started in. Without this, a job
+# interrupted by a deploy sits "running" forever, misleading anyone
+# watching it and making the dashboard's live-progress polling run forever
+# for nothing.
+models.mark_orphaned_jobs_as_error()
+
 from . import auth  # noqa: E402
 from . import routes_agent  # noqa: E402
 from . import routes_admin  # noqa: E402
