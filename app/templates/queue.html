@@ -225,6 +225,17 @@
     callBtn.addEventListener('click', () => { logCall(); });
 
     document.getElementById('q-skip-btn').addEventListener('click', () => {
+        // A call was already logged for this lead (the agent clicked Call) -
+        // require an outcome before moving on, so calls can't silently pile
+        // up with no feedback recorded (this happened for real yesterday).
+        // Skipping a lead that was never called at all is still fine - not
+        // every lead needs to be dialed.
+        if (currentCallId) {
+            outcomePanel.style.display = 'block';
+            outcomePanel.classList.add('shake');
+            setTimeout(() => outcomePanel.classList.remove('shake'), 400);
+            return;
+        }
         index += 1;
         render();
     });

@@ -1,3 +1,4 @@
+import datetime
 import json
 import time
 
@@ -629,6 +630,28 @@ def current_shift_date():
     try:
         row = conn.execute(f"SELECT {_shift_date_expr('NOW()')} AS shift_date").fetchone()
         return row['shift_date']
+    finally:
+        conn.close()
+
+
+def calls_per_day(days=7):
+    """Calls per shift-day for the trailing `days` days (oldest first),
+    including days with zero calls - backs the dashboard's activity chart."""
+    today = current_shift_date()
+    if isinstance(today, str):
+        today = datetime.date.fromisoformat(today)
+    date_range = [today - datetime.timedelta(days=i) for i in range(days - 1, -1, -1)]
+
+    conn = get_connection()
+    try:
+        shift_expr = _shift_date_expr('called_at')
+        rows = conn.execute(
+            f'SELECT {shift_expr} AS shift_date, COUNT(*) AS cnt FROM call_logs '
+            f'WHERE {shift_expr} >= ? GROUP BY {shift_expr}',
+            (date_range[0].isoformat(),),
+        ).fetchall()
+        by_date = {str(r['shift_date']): r['cnt'] for r in rows}
+        return [{'date': d.isoformat(), 'count': by_date.get(d.isoformat(), 0)} for d in date_range]
     finally:
         conn.close()
 

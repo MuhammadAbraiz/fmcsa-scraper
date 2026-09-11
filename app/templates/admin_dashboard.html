@@ -13,6 +13,21 @@
 </div>
 
 <div class="card">
+    <h2>Calls Per Day (Last 7 Shift-Days)</h2>
+    {% set max_count = ([calls_chart | map(attribute='count') | max, 1] | max) %}
+    <svg viewBox="0 0 700 200" class="calls-chart" role="img" aria-label="Calls logged per day over the last 7 shift-days">
+        {% for day in calls_chart %}
+        {% set bar_height = (day.count / max_count * 140) | round(0, 'ceil') if day.count > 0 else 0 %}
+        {% set x = loop.index0 * 100 + 20 %}
+        <text x="{{ x + 30 }}" y="{{ 150 - bar_height - 8 }}" text-anchor="middle" class="calls-chart-value">{{ day.count }}</text>
+        <rect x="{{ x }}" y="{{ 150 - bar_height }}" width="60" height="{{ bar_height }}" rx="4" class="calls-chart-bar"></rect>
+        <text x="{{ x + 30 }}" y="172" text-anchor="middle" class="calls-chart-label">{{ day.date[5:] }}</text>
+        {% endfor %}
+        <line x1="10" y1="150" x2="690" y2="150" class="calls-chart-axis"></line>
+    </svg>
+</div>
+
+<div class="card">
     <div class="section-header">
         <h2>Recent Searches (All Agents)</h2>
         <span class="pagination-info" id="jobs-live-indicator"></span>

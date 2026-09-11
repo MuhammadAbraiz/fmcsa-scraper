@@ -83,7 +83,11 @@ body {
     font-feature-settings: "tnum" 1, "cv11" 1;
 }
 
-.container { max-width: 980px; margin: auto; padding: 2em 1.5em 4em; }
+/* 980px was too narrow for filter bars with 5-7 fields (Folder/Search/
+   Equipment/MC From/MC To/Apply/Clear) plus tables - they'd wrap to extra
+   rows well before running out of real screen width on an ordinary desktop,
+   wasting the space sitting unused on both sides of the centered column. */
+.container { max-width: 1320px; margin: auto; padding: 2em 1.5em 4em; }
 
 .card {
     background: var(--color-surface);
@@ -103,7 +107,7 @@ p { color: var(--color-text-muted); }
 form { display: flex; flex-direction: column; gap: 1em; }
 label { font-weight: 600; font-size: 0.9em; color: var(--color-text); }
 
-input[type="number"], input[type="email"], input[type="text"], input[type="password"], select, textarea {
+input[type="number"], input[type="email"], input[type="text"], input[type="password"], input[type="date"], select, textarea {
     padding: 0.65em 0.8em;
     border: 1.5px solid var(--color-border);
     border-radius: var(--radius-sm);
@@ -197,6 +201,13 @@ button:disabled { background: #c3bff5; cursor: not-allowed; transform: none; box
 }
 #progress-text { margin-top: 0.6em; font-size: 0.88em; color: var(--color-text-muted); }
 
+/* Calls-per-day dashboard chart */
+.calls-chart { width: 100%; height: auto; margin-top: 0.5em; }
+.calls-chart-bar { fill: var(--color-primary); }
+.calls-chart-value { font-size: 12px; fill: var(--color-text-muted); }
+.calls-chart-label { font-size: 12px; fill: var(--color-text-muted); }
+.calls-chart-axis { stroke: var(--color-border); stroke-width: 1; }
+
 /* Result / alert boxes */
 #result, .alert { margin-top: 1em; padding: 0.85em 1em; border-radius: var(--radius-sm); font-size: 0.92em; }
 .alert-success, #result.success { background: var(--color-success-light); color: var(--color-success-dark); }
@@ -248,6 +259,12 @@ td a:hover { text-decoration: underline; }
 
 /* Call outcome panel */
 .outcome-panel { margin-top: 1.25em; padding: 1.25em; background: var(--color-bg); border-radius: var(--radius-md); display: none; }
+.outcome-panel.shake { animation: outcome-shake 0.4s ease; }
+@keyframes outcome-shake {
+    0%, 100% { transform: translateX(0); }
+    20%, 60% { transform: translateX(-6px); }
+    40%, 80% { transform: translateX(6px); }
+}
 .outcome-buttons { display: flex; gap: 0.5em; flex-wrap: wrap; margin-bottom: 0.9em; }
 .outcome-btn {
     padding: 0.45em 1em; border: 1.5px solid var(--color-border); background: var(--color-surface);

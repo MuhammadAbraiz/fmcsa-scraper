@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{% block title %}FMCSA Lead Manager{% endblock %}</title>
+    <title>{% block title %}Fast Logistics LLC{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <script>window.URL_PREFIX = {{ url_prefix | tojson }};</script>
     <script src="{{ url_for('static', filename='app.js') }}"></script>
@@ -11,7 +11,7 @@
 <body>
     {% if g.user %}
     <nav class="navbar">
-        <span class="nav-brand">FMCSA Lead Manager</span>
+        <span class="nav-brand">Fast Logistics LLC</span>
         <div class="nav-links">
             {% if g.user.role == 'admin' %}
                 <a href="{{ url_for('admin.dashboard') }}" data-path="/admin">Dashboard</a>
@@ -25,7 +25,7 @@
             {% endif %}
         </div>
         <div class="nav-right">
-            <span class="nav-user">{{ g.user.username }} · {{ g.user.role }}</span>
+            <span class="nav-user">{{ g.user.username }}{% if g.user.username != g.user.role %} · {{ g.user.role }}{% endif %}</span>
             <a href="{{ url_for('auth.change_password') }}">Change Password</a>
             <a href="{{ url_for('auth.logout') }}">Logout</a>
         </div>

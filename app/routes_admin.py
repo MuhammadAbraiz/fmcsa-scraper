@@ -25,9 +25,10 @@ def dashboard():
     recent_jobs = models.list_search_jobs(limit=15)
     recent_calls = models.list_call_logs(limit=15)
     has_running_jobs = any(j['status'] == 'running' for j in recent_jobs)
+    calls_chart = models.calls_per_day(days=7)
     return render_template(
         'admin_dashboard.html', summary=summary, recent_jobs=recent_jobs, recent_calls=recent_calls,
-        has_running_jobs=has_running_jobs,
+        has_running_jobs=has_running_jobs, calls_chart=calls_chart,
     )
 
 
