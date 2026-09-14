@@ -280,8 +280,8 @@ def set_active_folder(user_id, job_row_id):
 
 
 def set_active_filters(user_id, filters):
-    """filters: dict of q/equipment/mc_min/mc_max, stored as JSON so the agent's
-    last-used filters can be restored without re-typing them each visit."""
+    """filters: dict of q/equipment/mc_min/mc_max/page_size, stored as JSON so
+    the agent's last-used filters can be restored without re-typing them each visit."""
     conn = get_connection()
     try:
         conn.execute(
@@ -294,9 +294,10 @@ def set_active_filters(user_id, filters):
 
 
 def get_active_filters(user_id):
-    """Returns the {q, equipment, mc_min, mc_max} dict saved by set_active_filters(),
-    or an all-None dict if the agent has none saved yet (or it's malformed)."""
-    empty = {'q': None, 'equipment': None, 'mc_min': None, 'mc_max': None}
+    """Returns the {q, equipment, mc_min, mc_max, page_size} dict saved by
+    set_active_filters(), or an all-None dict if the agent has none saved yet
+    (or it's malformed)."""
+    empty = {'q': None, 'equipment': None, 'mc_min': None, 'mc_max': None, 'page_size': None}
     conn = get_connection()
     try:
         row = conn.execute('SELECT active_filters FROM users WHERE id = ?', (user_id,)).fetchone()

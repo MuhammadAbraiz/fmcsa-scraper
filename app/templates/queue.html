@@ -15,9 +15,9 @@
         <div class="filter-field">
             <label for="f-folder">Folder</label>
             <select id="f-folder">
-                <option value="all" {{ 'selected' if not job else '' }}>All Folders</option>
+                <option value="all" {{ 'selected' if not job else '' }}>🗂️ All Folders</option>
                 {% for j in folders %}
-                <option value="{{ j.job_uuid }}" {{ 'selected' if job and j.id == job.id else '' }}>{{ j.name or ('MC ' ~ j.start_mc ~ '-' ~ j.end_mc) }}</option>
+                <option value="{{ j.job_uuid }}" {{ 'selected' if job and j.id == job.id else '' }}>📁 {{ j.name or ('MC ' ~ j.start_mc ~ '-' ~ j.end_mc) }}</option>
                 {% endfor %}
             </select>
         </div>
@@ -250,7 +250,7 @@
         if (folderSelect.value === 'all') {
             banner.style.display = 'none';
         } else {
-            const label = folderSelect.options[folderSelect.selectedIndex].textContent;
+            const label = folderSelect.options[folderSelect.selectedIndex].textContent.replace(/^📁\s*/, '');
             text.textContent = `Working through folder "${label}".`;
             banner.style.display = 'block';
         }

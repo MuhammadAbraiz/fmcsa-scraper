@@ -9,9 +9,9 @@
         <div class="filter-field">
             <label for="f-folder">Folder</label>
             <select id="f-folder">
-                <option value="all">All Folders</option>
+                <option value="all">🗂️ All Folders</option>
                 {% for job in folders %}
-                <option value="{{ job.job_uuid }}" {{ 'selected' if active_job and job.id == active_job.id else '' }}>{{ job.name or ('MC ' ~ job.start_mc ~ '-' ~ job.end_mc) }}</option>
+                <option value="{{ job.job_uuid }}" {{ 'selected' if active_job and job.id == active_job.id else '' }}>📁 {{ job.name or ('MC ' ~ job.start_mc ~ '-' ~ job.end_mc) }}</option>
                 {% endfor %}
             </select>
         </div>
@@ -35,6 +35,15 @@
         <div class="filter-field">
             <label for="f-mc-max">MC To</label>
             <input type="number" id="f-mc-max" class="filter-mc" value="{{ active_filters.mc_max if active_filters.mc_max is not none else '' }}">
+        </div>
+        <div class="filter-field">
+            <label for="f-page-size">Show</label>
+            <select id="f-page-size">
+                {% set current_page_size = active_filters.page_size or 50 %}
+                {% for size in [50, 100, 250, 500] %}
+                <option value="{{ size }}" {{ 'selected' if current_page_size == size else '' }}>{{ size }} results</option>
+                {% endfor %}
+            </select>
         </div>
         <div class="filter-field">
             <button type="button" id="apply-filters-btn">Apply</button>
@@ -117,6 +126,7 @@
         if (equipment) params.set('equipment', equipment);
         if (mcMin) params.set('mc_min', mcMin);
         if (mcMax) params.set('mc_max', mcMax);
+        params.set('page_size', document.getElementById('f-page-size').value);
         if (includeFolder) params.set('job_id', document.getElementById('f-folder').value || 'all');
         params.set('page', currentPage);
 
@@ -157,9 +167,11 @@
         document.getElementById('f-mc-min').value = '';
         document.getElementById('f-mc-max').value = '';
         document.getElementById('f-folder').value = 'all';
+        document.getElementById('f-page-size').value = '50';
         loadLeads(1, true);
     });
     document.getElementById('f-folder').addEventListener('change', () => loadLeads(1, true));
+    document.getElementById('f-page-size').addEventListener('change', () => loadLeads(1, true));
     document.getElementById('f-q').addEventListener('keydown', (e) => { if (e.key === 'Enter') loadLeads(1, true); });
     document.getElementById('prev-page-btn').addEventListener('click', () => loadLeads(currentPage - 1));
     document.getElementById('next-page-btn').addEventListener('click', () => loadLeads(currentPage + 1));

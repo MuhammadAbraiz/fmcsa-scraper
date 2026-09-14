@@ -105,12 +105,16 @@ def leads_page():
     active_job = models.get_search_job_by_id(active_folder_id) if active_folder_id else None
     return render_template(
         'leads.html', equipment_filters=models.EQUIPMENT_FILTERS, outcomes=models.CALL_OUTCOMES,
-        folders=models.list_search_jobs(agent_id=g.user['id'], limit=50),
+        # Team-wide folder list, not just this agent's own - the shared lead
+        # pool includes folders any agent (or an admin import) started, and
+        # everyone needs to be able to filter/select all of them here.
+        folders=models.list_search_jobs(limit=100),
         active_job=active_job, active_filters=models.get_active_filters(g.user['id']),
     )
 
 
-PAGE_SIZE = 500
+PAGE_SIZE_DEFAULT = 50
+PAGE_SIZE_CHOICES = (50, 100, 250, 500)
 
 
 @bp.route('/api/leads')
@@ -120,15 +124,20 @@ def api_leads_list():
     equipment = request.args.get('equipment') or None
     mc_min = request.args.get('mc_min', type=int)
     mc_max = request.args.get('mc_max', type=int)
+    page_size = request.args.get('page_size', type=int)
+    if page_size not in PAGE_SIZE_CHOICES:
+        page_size = PAGE_SIZE_DEFAULT
     page = max(1, request.args.get('page', 1, type=int))
-    offset = (page - 1) * PAGE_SIZE
+    offset = (page - 1) * page_size
     job_row_id = _resolve_job_filter(request.args.get('job_id', ''), persist_for_agent_id=g.user['id'])
-    models.set_active_filters(g.user['id'], {'q': q, 'equipment': equipment, 'mc_min': mc_min, 'mc_max': mc_max})
+    models.set_active_filters(
+        g.user['id'], {'q': q, 'equipment': equipment, 'mc_min': mc_min, 'mc_max': mc_max, 'page_size': page_size},
+    )
 
     filters = dict(q=q, equipment=equipment, mc_min=mc_min, mc_max=mc_max, job_row_id=job_row_id)
-    leads = models.list_leads(**filters, limit=PAGE_SIZE, offset=offset)
+    leads = models.list_leads(**filters, limit=page_size, offset=offset)
     total = models.count_leads(**filters)
-    return jsonify({'leads': leads, 'total': total, 'page': page, 'page_size': PAGE_SIZE})
+    return jsonify({'leads': leads, 'total': total, 'page': page, 'page_size': page_size})
 
 
 @bp.route('/api/leads/<int:lead_id>')
@@ -148,7 +157,8 @@ def call_queue():
     job = models.get_search_job_by_id(job_row_id) if job_row_id else None
     return render_template(
         'queue.html', outcomes=models.CALL_OUTCOMES, equipment_filters=models.EQUIPMENT_FILTERS, job=job,
-        folders=models.list_search_jobs(agent_id=g.user['id'], limit=50),
+        # Team-wide, same reasoning as leads_page() above.
+        folders=models.list_search_jobs(limit=100),
         active_filters=models.get_active_filters(g.user['id']),
     )
 

@@ -41,7 +41,7 @@
             <tr>
                 <td>{{ job.started_at }}</td>
                 <td><a href="{{ url_for('admin.agent_detail', user_id=job.agent_id) }}">{{ job.agent_username }}</a></td>
-                <td>{{ job.name or '—' }}</td>
+                <td>{{ '📁 ' ~ job.name if job.name else '—' }}</td>
                 <td>{{ job.start_mc }} – {{ job.end_mc }}</td>
                 <td>{{ job.status }}</td>
                 <td>{{ job.processed }} / {{ job.total }}</td>
@@ -94,7 +94,7 @@
             <tr>
                 <td>${escapeHtml(job.started_at)}</td>
                 <td><a href="${apiUrl(`/admin/agents/${job.agent_id}`)}">${escapeHtml(job.agent_username)}</a></td>
-                <td>${escapeHtml(job.name) || '—'}</td>
+                <td>${job.name ? '📁 ' + escapeHtml(job.name) : '—'}</td>
                 <td>${escapeHtml(job.start_mc)} – ${escapeHtml(job.end_mc)}</td>
                 <td>${escapeHtml(job.status)}</td>
                 <td>${escapeHtml(job.processed)} / ${escapeHtml(job.total)}</td>
