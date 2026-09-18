@@ -18,10 +18,12 @@
                 <a href="{{ url_for('admin.dashboard') }}" data-path="/admin">Dashboard</a>
                 <a href="{{ url_for('admin.agents') }}" data-path="/admin/agents">Agents</a>
                 <a href="{{ url_for('admin.call_stats') }}" data-path="/admin/call-stats">Call Activity</a>
+                <a href="{{ url_for('agent.followups_page') }}" data-path="/followups">Follow-ups</a>
                 <a href="{{ url_for('agent.leads_page') }}" data-path="/leads">All Leads</a>
             {% else %}
                 <a href="{{ url_for('agent.portal') }}" data-path="/portal">Search Portal</a>
                 <a href="{{ url_for('agent.call_queue') }}" data-path="/queue">Call Queue</a>
+                <a href="{{ url_for('agent.followups_page') }}" data-path="/followups">Follow-ups</a>
                 <a href="{{ url_for('agent.leads_page') }}" data-path="/leads">All Leads</a>
             {% endif %}
         </div>

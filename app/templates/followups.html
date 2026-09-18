@@ -1,0 +1,134 @@
+{% extends 'base.html' %}
+{% block title %}Follow-ups{% endblock %}
+{% block content %}
+<div class="card">
+    <h1>Follow-ups</h1>
+    <p style="text-align:center;">Leads someone marked <b>Interested</b> or <b>Callback Later</b> on their most recent call. Call them again from here &mdash; once you log a new outcome, the lead updates or drops off.</p>
+
+    <div class="followup-tabs" id="followup-tabs">
+        <button type="button" class="btn-secondary active" data-outcome="all">All <span id="count-all"></span></button>
+        <button type="button" class="btn-secondary" data-outcome="Interested">Interested <span id="count-Interested"></span></button>
+        <button type="button" class="btn-secondary" data-outcome="Callback Later">Callback Later <span id="count-Callback Later"></span></button>
+    </div>
+
+    <div class="filter-bar">
+        <div class="filter-field">
+            <label for="f-q">Search</label>
+            <input type="text" id="f-q" placeholder="Name, USDOT, MC...">
+        </div>
+        <div class="filter-field">
+            <label for="f-mine">Show</label>
+            <select id="f-mine">
+                <option value="0">Whole team's follow-ups</option>
+                <option value="1">Only my follow-ups</option>
+            </select>
+        </div>
+        <div class="filter-field">
+            <button type="button" id="apply-filters-btn">Apply</button>
+        </div>
+    </div>
+
+    <div id="fu-empty" class="table-empty" style="display:none;">No follow-ups yet. Leads marked Interested or Callback Later will show up here.</div>
+    <div class="table-scroll">
+    <table id="fu-table" style="display:none;">
+        <thead>
+            <tr><th>Legal Name</th><th>Status</th><th>Phone</th><th>Last note</th><th>Last call</th><th></th></tr>
+        </thead>
+        <tbody id="fu-tbody"></tbody>
+    </table>
+    </div>
+    <div class="pagination-info" id="fu-info" style="margin-top:1em;"></div>
+</div>
+
+{% include '_lead_drawer.html' %}
+
+<script>
+    const tbody = document.getElementById('fu-tbody');
+    const table = document.getElementById('fu-table');
+    const emptyEl = document.getElementById('fu-empty');
+    const infoEl = document.getElementById('fu-info');
+    let currentOutcome = 'all';
+
+    function rowHtml(lead) {
+        const phone = lead.phone || '';
+        const safePhone = escapeHtml(phone);
+        const chipClass = lead.last_outcome === 'Interested' ? 'chip-interested' : 'chip-callback';
+        return `
+            <tr>
+                <td>${escapeHtml(lead.legal_name)}<div class="followup-meta">MC ${escapeHtml(lead.mc_number)}</div></td>
+                <td><span class="outcome-chip ${chipClass}">${escapeHtml(lead.last_outcome)}</span></td>
+                <td>${safePhone}</td>
+                <td class="followup-note">${escapeHtml(lead.last_note) || '—'}</td>
+                <td class="followup-meta">${escapeHtml(lead.last_called_at)}<br>by ${escapeHtml(lead.last_agent_username)}</td>
+                <td>
+                    <div class="row-actions">
+                        ${phone ? `<a href="tel:${safePhone}" class="icon-btn icon-call" title="Call again" onclick="callAgain(this, ${lead.id})">${window.leadIconSvg('call')}</a>` : ''}
+                        <button type="button" class="icon-btn icon-details" title="Details" onclick="openLeadDrawer(${lead.id})">${window.leadIconSvg('details')}</button>
+                    </div>
+                </td>
+            </tr>`;
+    }
+
+    // Logs the new call, then opens the drawer on its outcome panel so the
+    // agent records what happened before moving on.
+    window.callAgain = async function(el, leadId) {
+        el.classList.add('called');
+        try {
+            const res = await fetch(apiUrl(`/leads/${leadId}/call`), { method: 'POST' });
+            const data = await res.json();
+            openLeadDrawer(leadId, data.call_id);
+        } catch (err) {}
+    };
+
+    async function loadFollowups() {
+        const params = new URLSearchParams();
+        params.set('outcome', currentOutcome);
+        const q = document.getElementById('f-q').value.trim();
+        if (q) params.set('q', q);
+        if (document.getElementById('f-mine').value === '1') params.set('mine', '1');
+        try {
+            const res = await fetch(apiUrl(`/api/followups?${params.toString()}`));
+            const data = await res.json();
+            document.getElementById('count-all').textContent = `(${data.counts['Interested'] + data.counts['Callback Later']})`;
+            document.getElementById('count-Interested').textContent = `(${data.counts['Interested']})`;
+            document.getElementById('count-Callback Later').textContent = `(${data.counts['Callback Later']})`;
+            if (!data.leads.length) {
+                table.style.display = 'none';
+                emptyEl.style.display = 'block';
+                infoEl.textContent = '';
+                return;
+            }
+            tbody.innerHTML = data.leads.map(rowHtml).join('');
+            table.style.display = 'table';
+            emptyEl.style.display = 'none';
+            infoEl.textContent = data.total > data.leads.length
+                ? `Showing the ${data.leads.length} most recent of ${data.total}.`
+                : `${data.total} follow-up${data.total === 1 ? '' : 's'}.`;
+        } catch (err) {
+            emptyEl.textContent = 'Could not load follow-ups.';
+            emptyEl.style.display = 'block';
+            table.style.display = 'none';
+        }
+    }
+
+    document.querySelectorAll('#followup-tabs button').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('#followup-tabs button').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            currentOutcome = btn.dataset.outcome;
+            loadFollowups();
+        });
+    });
+    document.getElementById('apply-filters-btn').addEventListener('click', loadFollowups);
+    document.getElementById('f-mine').addEventListener('change', loadFollowups);
+    document.getElementById('f-q').addEventListener('keydown', (e) => { if (e.key === 'Enter') loadFollowups(); });
+
+    // Refresh the list when the drawer closes, so a just-saved outcome is
+    // reflected (the lead moves to its new status or drops off).
+    new MutationObserver(() => {
+        if (!document.getElementById('lead-drawer').classList.contains('open')) loadFollowups();
+    }).observe(document.getElementById('lead-drawer'), { attributes: true, attributeFilter: ['class'] });
+
+    loadFollowups();
+</script>
+{% endblock %}

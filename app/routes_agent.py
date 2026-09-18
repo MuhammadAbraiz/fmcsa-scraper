@@ -184,6 +184,26 @@ def queue_leads():
     })
 
 
+@bp.route('/followups')
+@login_required
+def followups_page():
+    return render_template('followups.html', outcomes=models.CALL_OUTCOMES)
+
+
+@bp.route('/api/followups')
+@api_login_required
+def api_followups():
+    which = request.args.get('outcome', 'all')
+    outcomes = (which,) if which in models.FOLLOWUP_OUTCOMES else models.FOLLOWUP_OUTCOMES
+    q = request.args.get('q') or None
+    agent_id = g.user['id'] if request.args.get('mine') == '1' else None
+    return jsonify({
+        'leads': models.list_followups(outcomes, q=q, agent_id=agent_id),
+        'total': models.count_followups(outcomes, q=q, agent_id=agent_id),
+        'counts': {o: models.count_followups((o,), q=q, agent_id=agent_id) for o in models.FOLLOWUP_OUTCOMES},
+    })
+
+
 @bp.route('/leads/<int:lead_id>')
 @login_required
 def lead_detail(lead_id):

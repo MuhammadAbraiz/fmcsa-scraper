@@ -386,3 +386,12 @@ td a:hover { text-decoration: underline; }
     .filter-bar input, .filter-bar select { min-width: 0; width: 100%; }
     .navbar { position: static; }
 }
+
+/* Follow-ups page */
+.followup-tabs { display: flex; gap: 0.5em; flex-wrap: wrap; justify-content: center; margin-bottom: 1em; }
+.followup-tabs button.active { background: var(--color-primary); color: #fff; }
+.outcome-chip { display: inline-block; padding: 0.2em 0.65em; border-radius: 999px; font-size: 0.78em; font-weight: 700; white-space: nowrap; }
+.outcome-chip.chip-interested { background: var(--color-success-light); color: var(--color-success-dark); }
+.outcome-chip.chip-callback { background: var(--color-primary-light); color: var(--color-primary); }
+.followup-note { color: var(--color-text-muted); font-size: 0.85em; max-width: 26em; }
+.followup-meta { color: var(--color-text-muted); font-size: 0.82em; white-space: nowrap; }

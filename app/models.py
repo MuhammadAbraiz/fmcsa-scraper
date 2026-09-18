@@ -573,6 +573,60 @@ def count_call_logs(agent_id=None, shift_date=None):
         conn.close()
 
 
+FOLLOWUP_OUTCOMES = ('Interested', 'Callback Later')
+
+
+def _followup_clauses(outcomes, q=None, agent_id=None):
+    # Only the lead's most recent call that actually has an outcome counts, so
+    # a lead drops off this list once someone re-calls it and marks something
+    # else (e.g. Not Interested) - and a just-clicked call with no outcome yet
+    # doesn't make it vanish while the agent is still on the phone.
+    marks = ', '.join('?' for _ in outcomes)
+    clauses = [
+        f'cl.outcome IN ({marks})',
+        'cl.id = (SELECT MAX(c2.id) FROM call_logs c2 WHERE c2.lead_id = l.id AND c2.outcome IS NOT NULL)',
+    ]
+    params = list(outcomes)
+    if q:
+        like = f'%{q}%'
+        clauses.append('(l.legal_name LIKE ? OR l.usdot LIKE ? OR l.mc_number LIKE ?)')
+        params += [like, like, like]
+    if agent_id is not None:
+        clauses.append('cl.agent_id = ?')
+        params.append(agent_id)
+    return ' AND '.join(clauses), params
+
+
+def list_followups(outcomes=FOLLOWUP_OUTCOMES, q=None, agent_id=None, limit=200):
+    conn = get_connection()
+    try:
+        where, params = _followup_clauses(outcomes, q, agent_id)
+        rows = conn.execute(
+            'SELECT l.*, cl.outcome AS last_outcome, cl.note AS last_note, cl.called_at AS last_called_at, '
+            'u.username AS last_agent_username, 1 AS been_called '
+            'FROM leads l JOIN call_logs cl ON cl.lead_id = l.id JOIN users u ON u.id = cl.agent_id '
+            f'WHERE {where} ORDER BY cl.called_at DESC LIMIT ?',
+            params + [limit],
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def count_followups(outcomes=FOLLOWUP_OUTCOMES, q=None, agent_id=None):
+    conn = get_connection()
+    try:
+        where, params = _followup_clauses(outcomes, q, agent_id)
+        row = conn.execute(
+            'SELECT COUNT(*) AS cnt FROM leads l JOIN call_logs cl ON cl.lead_id = l.id '
+            f'WHERE {where}',
+            params,
+        ).fetchone()
+        return row['cnt']
+    finally:
+        conn.close()
+
+
 def get_call_logs_for_lead(lead_id):
     conn = get_connection()
     try:
