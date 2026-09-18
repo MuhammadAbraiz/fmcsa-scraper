@@ -49,6 +49,12 @@
     const infoEl = document.getElementById('fu-info');
     let currentOutcome = 'all';
 
+    function pktTime(value) {
+        const d = new Date(value);
+        if (isNaN(d)) return escapeHtml(value);
+        return d.toLocaleString('en-GB', { timeZone: 'Asia/Karachi', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }) + ' PKT';
+    }
+
     function rowHtml(lead) {
         const phone = lead.phone || '';
         const safePhone = escapeHtml(phone);
@@ -59,7 +65,7 @@
                 <td><span class="outcome-chip ${chipClass}">${escapeHtml(lead.last_outcome)}</span></td>
                 <td>${safePhone}</td>
                 <td class="followup-note">${escapeHtml(lead.last_note) || '—'}</td>
-                <td class="followup-meta">${escapeHtml(lead.last_called_at)}<br>by ${escapeHtml(lead.last_agent_username)}</td>
+                <td class="followup-meta">${pktTime(lead.last_called_at)}<br>by ${escapeHtml(lead.last_agent_username)}</td>
                 <td>
                     <div class="row-actions">
                         ${phone ? `<a href="tel:${safePhone}" class="icon-btn icon-call" title="Call again" onclick="callAgain(this, ${lead.id})">${window.leadIconSvg('call')}</a>` : ''}
