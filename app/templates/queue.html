@@ -71,7 +71,8 @@
                     <button type="button" class="outcome-btn" data-outcome="{{ outcome }}"><span class="kbd-hint">{{ loop.index }}</span>{{ outcome }}</button>
                     {% endfor %}
                 </div>
-                <textarea id="q-note" rows="2" style="width:100%;" placeholder="Optional note..."></textarea>
+                <textarea id="q-note" rows="2" style="width:100%;" placeholder="Note (required for Interested / Callback Later): what did they say, what truck, when to call back?"></textarea>
+                <div id="q-note-hint" class="note-hint" style="display:none;"></div>
             </div>
 
             <div class="queue-meta">
@@ -186,6 +187,8 @@
         outcomePanel.style.display = 'none';
         callBtn.classList.remove('called');
         document.getElementById('q-note').value = '';
+        pendingOutcome = null;
+        noteHint.style.display = 'none';
         document.querySelectorAll('.outcome-btn').forEach(b => b.classList.remove('selected'));
 
         if (index >= queue.length) {
@@ -272,18 +275,63 @@
         loadQueue(true);
     });
 
-    document.getElementById('q-outcome-buttons').addEventListener('click', async (e) => {
-        if (!e.target.classList.contains('outcome-btn')) return;
+    // Interested / Callback Later are the leads someone will re-call later, so
+    // they need context - the server enforces this too (see set_call_outcome).
+    const NOTE_REQUIRED_OUTCOMES = ['Interested', 'Callback Later'];
+    const noteEl = document.getElementById('q-note');
+    const noteHint = document.getElementById('q-note-hint');
+    let pendingOutcome = null;
+
+    function showNoteHint(text) {
+        noteHint.textContent = text;
+        noteHint.style.display = 'block';
+    }
+
+    async function submitOutcome(outcome, btn) {
         if (!currentCallId) return;
-        const outcome = e.target.dataset.outcome;
-        e.target.classList.add('selected');
-        const note = document.getElementById('q-note').value;
+        const note = noteEl.value;
+        if (NOTE_REQUIRED_OUTCOMES.includes(outcome) && !note.trim()) {
+            pendingOutcome = outcome;
+            showNoteHint(`Add a note before marking "${outcome}" - then press Enter (or click the button again).`);
+            noteEl.classList.add('shake');
+            setTimeout(() => noteEl.classList.remove('shake'), 400);
+            noteEl.focus();
+            return;
+        }
+        pendingOutcome = null;
+        noteHint.style.display = 'none';
+        btn.classList.add('selected');
         const body = new FormData();
         body.append('outcome', outcome);
         body.append('note', note);
-        await fetch(apiUrl(`/calls/${currentCallId}/outcome`), { method: 'POST', body });
+        try {
+            const res = await fetch(apiUrl(`/calls/${currentCallId}/outcome`), { method: 'POST', body });
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                btn.classList.remove('selected');
+                showNoteHint(data.error || 'Could not save the outcome - try again.');
+                return;
+            }
+        } catch (err) {
+            btn.classList.remove('selected');
+            showNoteHint('Could not save the outcome - check your connection and try again.');
+            return;
+        }
         totalRemaining = Math.max(0, totalRemaining - 1);
         setTimeout(() => { index += 1; render(); }, 350);
+    }
+
+    document.getElementById('q-outcome-buttons').addEventListener('click', (e) => {
+        const btn = e.target.closest('.outcome-btn');
+        if (btn) submitOutcome(btn.dataset.outcome, btn);
+    });
+
+    noteEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey && pendingOutcome && noteEl.value.trim()) {
+            e.preventDefault();
+            const btn = document.querySelector(`.outcome-btn[data-outcome="${pendingOutcome}"]`);
+            if (btn) submitOutcome(pendingOutcome, btn);
+        }
     });
 
     document.addEventListener('keydown', (e) => {

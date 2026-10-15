@@ -88,7 +88,7 @@
                     <button type="button" class="outcome-btn" data-outcome="{{ outcome }}">{{ outcome }}</button>
                     {% endfor %}
                 </div>
-                <textarea id="drawer-note" rows="2" style="width:100%;" placeholder="Optional note..."></textarea>
+                <textarea id="drawer-note" rows="2" style="width:100%;" placeholder="Note (required for Interested / Callback Later)"></textarea>
                 <button type="button" id="drawer-save-outcome-btn" class="btn-small" style="margin-top:0.6em;">Save</button>
                 <div id="drawer-outcome-saved" class="status-message" style="display:none;">Saved.</div>
             </div>
@@ -118,14 +118,35 @@
             window.drawerSelectedOutcome = e.target.dataset.outcome;
         });
         document.getElementById('drawer-save-outcome-btn').addEventListener('click', async () => {
-            if (!drawerCallId || !window.drawerSelectedOutcome) return;
+            const saved = document.getElementById('drawer-outcome-saved');
+            const showMsg = (text, isError) => {
+                saved.textContent = text;
+                saved.style.display = 'block';
+                saved.style.color = isError ? 'var(--color-danger-dark)' : '';
+            };
+            if (!drawerCallId || !window.drawerSelectedOutcome) {
+                showMsg('Pick an outcome first.', true);
+                return;
+            }
             const note = document.getElementById('drawer-note').value;
+            if (['Interested', 'Callback Later'].includes(window.drawerSelectedOutcome) && !note.trim()) {
+                showMsg(`Add a note before marking "${window.drawerSelectedOutcome}" - what did they say, when to call back?`, true);
+                document.getElementById('drawer-note').focus();
+                return;
+            }
             const formBody = new FormData();
             formBody.append('outcome', window.drawerSelectedOutcome);
             formBody.append('note', note);
-            const res = await fetch(apiUrl(`/calls/${drawerCallId}/outcome`), { method: 'POST', body: formBody });
-            if (res.ok) {
-                document.getElementById('drawer-outcome-saved').style.display = 'block';
+            try {
+                const res = await fetch(apiUrl(`/calls/${drawerCallId}/outcome`), { method: 'POST', body: formBody });
+                if (res.ok) {
+                    showMsg('Saved.', false);
+                } else {
+                    const data = await res.json().catch(() => ({}));
+                    showMsg(data.error || 'Could not save the outcome.', true);
+                }
+            } catch (err) {
+                showMsg('Could not save the outcome - check your connection.', true);
             }
         });
     }

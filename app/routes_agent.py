@@ -253,6 +253,10 @@ def set_call_outcome(call_id):
     note = request.form.get('note', '')
     if outcome not in models.CALL_OUTCOMES:
         return jsonify({'error': 'Invalid outcome'}), 400
+    if outcome in models.FOLLOWUP_OUTCOMES and not note.strip():
+        # A warm lead with no context can't be followed up properly - the
+        # next person calling it has nothing to go on.
+        return jsonify({'error': f'A note is required when marking a call "{outcome}".'}), 400
     ok = models.update_call_outcome(call_id, outcome, note, g.user)
     if not ok:
         return jsonify({'error': 'Call not found or not permitted'}), 403

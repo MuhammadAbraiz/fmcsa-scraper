@@ -395,3 +395,6 @@ td a:hover { text-decoration: underline; }
 .outcome-chip.chip-callback { background: var(--color-primary-light); color: var(--color-primary); }
 .followup-note { color: var(--color-text-muted); font-size: 0.85em; max-width: 26em; }
 .followup-meta { color: var(--color-text-muted); font-size: 0.82em; white-space: nowrap; }
+
+.note-hint { margin-top: 0.5em; padding: 0.55em 0.8em; border-radius: var(--radius-sm); background: var(--color-danger-light); color: var(--color-danger-dark); font-size: 0.88em; }
+#q-note.shake { animation: outcome-shake 0.4s ease; border-color: var(--color-danger-dark); }
